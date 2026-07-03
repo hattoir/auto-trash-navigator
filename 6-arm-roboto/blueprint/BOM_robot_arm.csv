@@ -1,0 +1,25 @@
+Category,Item,Qty,Spec/Notes,Unit Mass (g),Total Mass (g)
+Printed,Base_J1,1,PLA / J1 servo housing + dual-support bosses,110.5,110.5
+Printed,TopPlate_J1,1,PLA / 6810 bearing retainer,23.3,23.3
+Printed,Turntable_J1,1,PLA / J1 rotor (hub + table),58.6,58.6
+Printed,J2_Bracket,1,PLA / J2 servo cradle,28.1,28.1
+Printed,UpperArm_J2J3,1,PLA / J2 fork + J3 pocket,61.3,61.3
+Printed,Forearm_J3J4,1,PLA / J3 fork + J4 roll head,69.2,69.2
+Printed,WristHub_J5,1,PLA / J4 rotor + J5 pocket,18.1,18.1
+Printed,WristLink_J5J6,1,PLA / J5 fork + J6 head,47.6,47.6
+Printed,HandBase_J6,1,PLA / J6 horn mount + servo cradle + guide rails,45.5,45.5
+Printed,Pinion_Hand,1,PLA / module 1.0 14T pinion (PCD 14mm),2.5,2.5
+Printed,Finger_A,1,PLA / rack finger (print 2x same part 180deg),8.5,8.5
+Printed,Finger_B,1,PLA / rack finger (identical to Finger_A),8.5,8.5
+Servo,STS3215 (12V variant),7,Smart serial servo / VERIFY 12V rating before use,52.0,364.0
+Bearing,6810-2RS,1,50x65x7mm / J1 main bearing,65.0,65.0
+Fastener,M3x6 machine screw,~30,Servo mounting + horn fastening,0.5,15.0
+Fastener,M3x16 machine screw,4,TopPlate to base bosses,1.2,4.8
+Fastener,M3x6 self-tapping,8,Bracket-to-turntable / hub pilots,0.4,3.2
+Fastener,M3 servo center screw,7,Supplied with each servo (horn fixing),0.5,3.5
+Electronics,12V power supply,1,For servo bus / >=5A recommended,,
+Electronics,Serial servo controller,1,e.g. FE-URT-1 or compatible TTL bus driver,,
+Electronics,Logic regulator,1,12V to 5V for controller logic if needed,,
+,,,,,
+,TOTAL printed plastic,,~388 cm3,,481.6
+,GRAND TOTAL (with servos + hardware),,~0.94 kg,,940
