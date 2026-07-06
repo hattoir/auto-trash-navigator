@@ -176,13 +176,13 @@ def generate_launch_description():
             '/camera/image@sensor_msgs/msg/Image[gz.msgs.Image',
             '/camera/depth_image@sensor_msgs/msg/Image[gz.msgs.Image',
             '/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
-            '/world/empty/model/visual_amr/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model',
+            '/world/office_room/model/visual_amr/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model',
             '/lidar@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan'
         ],
         remappings=[
             ('/camera/image', '/camera/image_raw'),
             ('/camera/depth_image', '/camera/depth_image_raw'),
-            ('/world/empty/model/visual_amr/joint_state', '/joint_states'),
+            ('/world/office_room/model/visual_amr/joint_state', '/joint_states'),
             ('/lidar', '/scan')
         ]
     )
