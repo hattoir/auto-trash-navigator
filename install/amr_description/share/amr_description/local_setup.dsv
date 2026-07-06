@@ -1,2 +1,1 @@
-source;share/amr_description/environment/ament_prefix_path.sh
-source;share/amr_description/environment/path.sh
+/home/pakku/auto-trash-navigator/build/amr_description/ament_cmake_environment_hooks/local_setup.dsv
