@@ -48,6 +48,7 @@ def generate_launch_description():
 
     # 確定したグラフィックス環境変数の辞書
     gazebo_env = {
+        'DISPLAY': os.environ.get('DISPLAY', ':0'),
         '__EGL_VENDOR_LIBRARY_FILENAMES': '/usr/share/glvnd/egl_vendor.d/50_mesa.json',
         '__GLX_VENDOR_LIBRARY_NAME': 'mesa',
         'MESA_LOADER_DRIVER_OVERRIDE': 'llvmpipe',
@@ -70,6 +71,28 @@ def generate_launch_description():
         ])
     }
 
+    # サーバー用環境変数：EGL surfaceless + llvmpipe ソフトウェアレンダラ強制 + LD_PRELOAD による GPU 隠蔽でセグフォ防止
+    gazebo_server_env = gazebo_env.copy()
+    gazebo_server_env['GZ_RENDERING_ENGINE_SERVER_API'] = 'egl'
+    gazebo_server_env['EGL_PLATFORM'] = 'surfaceless'
+    gazebo_server_env['GB_SURFACE_TYPE'] = 'linear'
+    gazebo_server_env['DISPLAY'] = ''
+    gazebo_server_env['LIBGL_ALWAYS_SOFTWARE'] = '1'
+    gazebo_server_env['GBM_ALWAYS_SOFTWARE'] = '1'
+    gazebo_server_env['EGL_SOFTWARE'] = '1'
+    gazebo_server_env['EGL_DRIVER'] = 'swrast'
+    gazebo_server_env['MESA_LOADER_DRIVER_OVERRIDE'] = 'llvmpipe'
+    gazebo_server_env['GALLIUM_DRIVER'] = 'llvmpipe'
+    gazebo_server_env['LIBGL_DRI2_DISABLE'] = '1'
+    gazebo_server_env['LIBGL_DRI3_DISABLE'] = '1'
+    gazebo_server_env['GZ_SIM_HEADLESS_RENDERING'] = '1'
+    # LD_PRELOAD で /dev/dri と /dev/nvidia を隠して Mesa の driCreateNewScreen3 セグフォを回避
+    pkg_amr_bringup_temp = get_package_share_directory('amr_bringup')
+    gazebo_server_env['LD_PRELOAD'] = os.path.join(pkg_amr_bringup_temp, 'launch', 'libhide_gpu.so')
+
+    # GUI用環境変数
+    gazebo_gui_env = gazebo_env.copy()
+
     # amr_description パッケージのシェアディレクトリを取得
     pkg_amr_description = get_package_share_directory('amr_description')
     pkg_amr_bringup = get_package_share_directory('amr_bringup')
@@ -86,30 +109,30 @@ def generate_launch_description():
     )
 
     # 1. 空のGazebo世界の起動 (ExecuteProcess により環境変数を100%確実に密輸 & shell=Falseに修正)
-    # ヘッドレスの場合（Serverのみ起動）
+    # Gazebo サーバーの起動（常にヘッドレスサーバーを起動）
     gazebo_server = ExecuteProcess(
         cmd=[
             'ruby', '/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz', 'sim',
             '-s', '-r', world_file,
+            '--headless-rendering',
             '--force-version', '8'
         ],
-        name='gazebo',
+        name='gazebo_server',
         output='screen',
-        additional_env=gazebo_env,
-        condition=IfCondition(LaunchConfiguration('headless'))
+        additional_env=gazebo_server_env
     )
 
-    # GUIありの場合（Server + Client起動 & OGRE 1.x指定）
+    # GUIクライアントの起動（headlessがfalseの時のみ、GUI側をOGRE 1.xで起動してアタッチ）
     gazebo_gui = ExecuteProcess(
         cmd=[
             'ruby', '/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz', 'sim',
-            '--render-engine', 'ogre',
-            '-r', world_file,
+            '-g',
+            '--render-engine-gui', 'ogre',
             '--force-version', '8'
         ],
-        name='gazebo',
+        name='gazebo_gui',
         output='screen',
-        additional_env=gazebo_env,
+        additional_env=gazebo_gui_env,
         condition=UnlessCondition(LaunchConfiguration('headless'))
     )
 

@@ -315,8 +315,8 @@ message(STATUS "Execute custom install script")
 
 # begin of custom install code
 
-# install(DIRECTORY "launch" "config" "DESTINATION" "share/amr_bringup")
-ament_cmake_symlink_install_directory("/home/pakku/auto-trash-navigator/src/amr_bringup" DIRECTORY "launch" "config" "DESTINATION" "share/amr_bringup")
+# install(DIRECTORY "launch" "config" "worlds" "DESTINATION" "share/amr_bringup")
+ament_cmake_symlink_install_directory("/home/pakku/auto-trash-navigator/src/amr_bringup" DIRECTORY "launch" "config" "worlds" "DESTINATION" "share/amr_bringup")
 
 # install(FILES "/home/pakku/auto-trash-navigator/build/amr_bringup/ament_cmake_index/share/ament_index/resource_index/package_run_dependencies/amr_bringup" "DESTINATION" "share/ament_index/resource_index/package_run_dependencies")
 ament_cmake_symlink_install_files("/home/pakku/auto-trash-navigator/src/amr_bringup" FILES "/home/pakku/auto-trash-navigator/build/amr_bringup/ament_cmake_index/share/ament_index/resource_index/package_run_dependencies/amr_bringup" "DESTINATION" "share/ament_index/resource_index/package_run_dependencies")

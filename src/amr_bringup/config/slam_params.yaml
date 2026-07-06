@@ -1,13 +1,26 @@
 slam_toolbox:
   ros__parameters:
-    # -------------------------------------------------------------
-    # Required ROS 2 Parameters
-    # -------------------------------------------------------------
+    # 物理/時間設定
     use_sim_time: true
+    mode: mapping
 
-    # -------------------------------------------------------------
-    # Solver Parameters (Ceres Solver Setup)
-    # -------------------------------------------------------------
+    # フレーム定義
+    odom_frame: odom
+    map_frame: map
+    base_frame: base_footprint
+    scan_topic: /scan
+
+    # センサー設定
+    minimum_time_interval: 0.1
+    max_laser_range: 12.0
+    minimum_travel_distance: 0.1
+    minimum_travel_heading: 0.1
+    
+    # マップ設定
+    map_update_interval: 2.0
+    resolution: 0.05
+
+    # Matcher/Solver パラメータ (Ceres)
     solver_plugin: solver_plugins::CeresSolver
     ceres_linear_solver: SPARSE_NORMAL_CHOLESKY
     ceres_preconditioner: SCHUR_JACOBI
@@ -15,35 +28,7 @@ slam_toolbox:
     ceres_dogleg_type: TRADITIONAL_DOGLEG
     ceres_loss_function: None
 
-    # -------------------------------------------------------------
-    # Frame & Topic Definitions
-    # -------------------------------------------------------------
-    odom_frame: odom
-    map_frame: map
-    base_frame: base_footprint
-    scan_topic: /scan
-    mode: mapping
-
-    # -------------------------------------------------------------
-    # SLAM Toolbox Specific Parameters
-    # -------------------------------------------------------------
-    # Map Resolution (5cm per cell)
-    resolution: 0.05
-    # Max range to use from scan data. Configured to 12.0m to match the physical GPU LiDAR max range.
-    max_laser_range: 12.0
-
-    # Minimum travel to update map (20cm and ~11.5 deg). Reduces CPU load in stationary state.
-    minimum_travel_distance: 0.2
-    minimum_travel_heading: 0.2
-
-    # Matcher and Correlation default parameters for stable scan-matching
-    use_scan_matching: true
-    use_scan_barycenter: true
-    delay_solve_of_predictions: false
-    scan_buffer_size: 10
-    scan_buffer_maximum_scan_distance: 10.0
-    link_match_minimum_response_fine: 0.1
-    link_scan_maximum_distance: 1.5
+    # SLAM Toolbox 特有の設定
     loop_search_maximum_distance: 3.0
     do_loop_closing: true
     loop_match_minimum_chain_size: 10
@@ -51,30 +36,13 @@ slam_toolbox:
     loop_match_minimum_response_coarse: 0.35
     loop_match_minimum_response_fine: 0.45
 
-    # Correlation search parameters
-    correlation_search_space_dimension: 0.5
-    correlation_search_space_resolution: 0.01
-    correlation_search_space_smear_deviation: 0.03
-
-    # Loop closure search parameters
-    loop_search_space_dimension: 8.0
-    loop_search_space_resolution: 0.05
-    loop_search_space_smear_deviation: 0.03
-
-    # Variance penalties for scan matching
-    distance_variance_penalty: 0.5
-    angle_variance_penalty: 1.0
-
-    fine_search_angle_offset: 0.00349
+    # 相関関係スキャンマッチング
+    use_coarse_search_offset: true
     coarse_search_angle_offset: 0.349
+    coarse_search_distance_offset: 0.3
     coarse_angle_resolution: 0.0349
-    minimum_angle_penalty: 0.9
-    minimum_distance_penalty: 0.5
-    use_response_filter: true
+    coarse_linear_resolution: 0.03
 
-    # Adjuster thresholds
-    minimum_difference_for_trigger_area: 1.0
-
-    # General configuration
-    use_map_matching: false
-    map_queue_size: 1
+    # 閾値
+    minimum_process_distance: 0.3
+    minimum_process_angle: 0.15

@@ -19,6 +19,8 @@
       filename="gz-sim-scene-broadcaster-system"
       name="gz::sim::systems::SceneBroadcaster">
     </plugin>
+    <!-- Sensors and Imu plugins are loaded by the robot URDF; commenting out here to prevent duplicate loading crash -->
+    <!--
     <plugin
       filename="gz-sim-sensors-system"
       name="gz::sim::systems::Sensors">
@@ -28,6 +30,7 @@
       filename="gz-sim-imu-system"
       name="gz::sim::systems::Imu">
     </plugin>
+    -->
 
     <!-- Sun Light -->
     <light type="directional" name="sun">
