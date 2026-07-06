@@ -72,9 +72,11 @@ def generate_launch_description():
 
     # amr_description パッケージのシェアディレクトリを取得
     pkg_amr_description = get_package_share_directory('amr_description')
+    pkg_amr_bringup = get_package_share_directory('amr_bringup')
     
-    # Xacroファイルのパスを設定
+    # Xacroファイルとワールドファイルのパスを設定
     xacro_file = os.path.join(pkg_amr_description, 'urdf', 'amr_robot.urdf.xacro')
+    world_file = os.path.join(pkg_amr_bringup, 'worlds', 'office_room.sdf')
 
     # ヘッドレスモード (Server only) 切り替え引数の定義
     headless_arg = DeclareLaunchArgument(
@@ -88,7 +90,7 @@ def generate_launch_description():
     gazebo_server = ExecuteProcess(
         cmd=[
             'ruby', '/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz', 'sim',
-            '-s', '-r', 'empty.sdf',
+            '-s', '-r', world_file,
             '--force-version', '8'
         ],
         name='gazebo',
@@ -102,7 +104,7 @@ def generate_launch_description():
         cmd=[
             'ruby', '/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz', 'sim',
             '--render-engine', 'ogre',
-            '-r', 'empty.sdf',
+            '-r', world_file,
             '--force-version', '8'
         ],
         name='gazebo',
