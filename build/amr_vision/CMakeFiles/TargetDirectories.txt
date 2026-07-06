@@ -1,0 +1,9 @@
+/home/pakku/auto-trash-navigator/build/amr_vision/CMakeFiles/uninstall.dir
+/home/pakku/auto-trash-navigator/build/amr_vision/CMakeFiles/amr_vision_uninstall.dir
+/home/pakku/auto-trash-navigator/build/amr_vision/CMakeFiles/test.dir
+/home/pakku/auto-trash-navigator/build/amr_vision/CMakeFiles/edit_cache.dir
+/home/pakku/auto-trash-navigator/build/amr_vision/CMakeFiles/rebuild_cache.dir
+/home/pakku/auto-trash-navigator/build/amr_vision/CMakeFiles/list_install_components.dir
+/home/pakku/auto-trash-navigator/build/amr_vision/CMakeFiles/install.dir
+/home/pakku/auto-trash-navigator/build/amr_vision/CMakeFiles/install/local.dir
+/home/pakku/auto-trash-navigator/build/amr_vision/CMakeFiles/install/strip.dir

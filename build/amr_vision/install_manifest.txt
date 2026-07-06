@@ -1,0 +1,15 @@
+/home/pakku/auto-trash-navigator/install/amr_vision/share/ament_index/resource_index/package_run_dependencies/amr_vision
+/home/pakku/auto-trash-navigator/install/amr_vision/share/ament_index/resource_index/parent_prefix_path/amr_vision
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/environment/ament_prefix_path.sh
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/environment/ament_prefix_path.dsv
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/environment/path.sh
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/environment/path.dsv
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/local_setup.bash
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/local_setup.sh
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/local_setup.zsh
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/local_setup.dsv
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/package.dsv
+/home/pakku/auto-trash-navigator/install/amr_vision/share/ament_index/resource_index/packages/amr_vision
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/cmake/amr_visionConfig.cmake
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/cmake/amr_visionConfig-version.cmake
+/home/pakku/auto-trash-navigator/install/amr_vision/share/amr_vision/package.xml
