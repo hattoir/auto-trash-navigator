@@ -1,177 +1,105 @@
 #!/usr/bin/env python3
+"""Phase 2-D: 3点Waypoint無限巡回 (nav2_simple_commander)
 
-import sys
-import time
+使い方:
+  スポーン直後(0,0にいる)なら:
+    ros2 run amr_bringup patrol.py --ros-args -p set_initial_pose:=true
+  すでにRVizの2D Pose EstimateでAMCLを初期化済みなら:
+    ros2 run amr_bringup patrol.py
+
+Waypoint選定根拠:
+  壁(±4m)から1.6m、障害物中心(2,2)(-2,-2)(-2,2)から2.0m以上離れた
+  3点で部屋を大きく三角形に周回する。
+    A( 2.4, -2.4) : 障害物のない南東コーナー
+    B( 0.0,  2.4) : 北辺中央(障害物(2,2)(-2,2)の間)
+    C(-2.4,  0.0) : 西辺中央(障害物(-2,2)(-2,-2)の間)
+各Waypointでは次のWaypoint方向を向く(カメラ前方=進行方向を維持、Phase 3準備)。
+"""
 import math
+import time
+
 import rclpy
-from rclpy.node import Node
-from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped
+from rclpy.duration import Duration
+from geometry_msgs.msg import PoseStamped
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
-from action_msgs.msg import GoalStatus
 
-# Waypoint Coordinates Design:
-# Wall boundary: x, y in [-4, 4]. 1.2m offset from walls -> x, y in [-2.8, 2.8]
-# Obstacles at: (2, 2), (-2, -2), (-2, 2). 1.2m offset -> distance to obstacle centers >= 1.2m
-#
-# Chosen Points:
-# 1. Waypoint 1: (2.5, -2.5) -> Safe area in Quadrant IV (no obstacles). Wall offset is 1.5m.
-# 2. Waypoint 2: (0.0, 2.5)  -> Centered between obstacles (2,2) and (-2,2). Distance to both is ~2.06m. Wall offset is 1.5m.
-# 3. Waypoint 3: (-2.5, -0.5) -> Offset from obstacle (-2, 2) by ~2.55m and (-2, -2) by ~1.58m. Wall offset is 1.5m.
-#
-# These three points form a large triangle avoiding all walls and obstacles.
-
-WAYPOINTS_DATA = [
-    {"x": 2.5, "y": -2.5, "yaw": 0.0},
-    {"x": 0.0, "y": 2.5, "yaw": 1.57},
-    {"x": -2.5, "y": -0.5, "yaw": 3.14}
+WAYPOINTS = [
+    (2.4, -2.4),
+    (0.0, 2.4),
+    (-2.4, 0.0),
 ]
+MAX_CONSECUTIVE_FAILURES = 3
+GOAL_TIMEOUT_SEC = 120.0
 
-class InitialPoseChecker(Node):
-    def __init__(self):
-        super().__init__('initial_pose_checker')
-        self.received = False
-        self.sub = self.create_subscription(
-            PoseWithCovarianceStamped,
-            '/amcl_pose',
-            self.cb,
-            10
-        )
 
-    def cb(self, msg):
-        self.received = True
+def make_pose(navigator, x, y, yaw):
+    p = PoseStamped()
+    p.header.frame_id = 'map'
+    p.header.stamp = navigator.get_clock().now().to_msg()
+    p.pose.position.x = float(x)
+    p.pose.position.y = float(y)
+    p.pose.orientation.z = math.sin(yaw / 2.0)
+    p.pose.orientation.w = math.cos(yaw / 2.0)
+    return p
 
-def check_amcl_initialized():
-    node = InitialPoseChecker()
-    start_time = time.time()
-    # Wait up to 2 seconds to check if amcl_pose is published
-    while time.time() - start_time < 2.0:
-        rclpy.spin_once(node, timeout_sec=0.1)
-        if node.received:
-            break
-    node.destroy_node()
-    return node.received
 
 def main():
     rclpy.init()
-
-    # Create navigator
     navigator = BasicNavigator()
+    navigator.declare_parameter('set_initial_pose', False)
 
-    # Check if AMCL is already initialized to avoid double setting
-    amcl_initialized = check_amcl_initialized()
-    if not amcl_initialized:
-        navigator.get_logger().info("AMCL not initialized. Setting initial pose to (0,0)...")
-        init_pose = PoseStamped()
-        init_pose.header.frame_id = 'map'
-        init_pose.header.stamp = navigator.get_clock().now().to_msg()
-        init_pose.pose.position.x = 0.0
-        init_pose.pose.position.y = 0.0
-        init_pose.pose.orientation.w = 1.0
-        navigator.setInitialPose(init_pose)
-    else:
-        navigator.get_logger().info("AMCL is already initialized. Skipping setInitialPose.")
+    if navigator.get_parameter('set_initial_pose').value:
+        navigator.get_logger().info('初期位置 (0,0,0) を設定します')
+        navigator.setInitialPose(make_pose(navigator, 0.0, 0.0, 0.0))
 
-    # Wait for Nav2 to activate
-    navigator.get_logger().info("Waiting for Nav2 to become active...")
-    navigator.waitUntilNav2Active()
-    navigator.get_logger().info("Nav2 is fully active. Starting patrol.")
+    navigator.get_logger().info('Nav2 の active 化を待機中...')
+    navigator.waitUntilNav2Active(localizer='amcl')
+    navigator.get_logger().info('Nav2 active。巡回を開始します')
 
-    consecutive_failures = [0] * len(WAYPOINTS_DATA)
-    loop_count = 0
-
+    lap = 0
+    consecutive_failures = 0
     try:
         while rclpy.ok():
-            loop_count += 1
-            navigator.get_logger().info(f"========== Starting Patrol Loop {loop_count} ==========")
-            start_time = time.time()
+            lap += 1
+            lap_start = time.monotonic()
+            for i, (x, y) in enumerate(WAYPOINTS):
+                # 次のWaypoint方向を向くyawを計算
+                nx, ny = WAYPOINTS[(i + 1) % len(WAYPOINTS)]
+                yaw = math.atan2(ny - y, nx - x)
+                label = f'Lap{lap} WP{i + 1}/{len(WAYPOINTS)} ({x:+.1f},{y:+.1f})'
+                navigator.get_logger().info(f'{label} へ移動開始')
 
-            # Build list of active waypoints (exclude those with >= 3 failures)
-            active_waypoints = []
-            active_indices = []
-            for i, wp in enumerate(WAYPOINTS_DATA):
-                if consecutive_failures[i] < 3:
-                    pose = PoseStamped()
-                    pose.header.frame_id = 'map'
-                    pose.header.stamp = navigator.get_clock().now().to_msg()
-                    pose.pose.position.x = wp["x"]
-                    pose.pose.position.y = wp["y"]
-                    
-                    # Convert yaw to quaternion
-                    q_z = math.sin(wp["yaw"] / 2.0)
-                    q_w = math.cos(wp["yaw"] / 2.0)
-                    pose.pose.orientation.z = q_z
-                    pose.pose.orientation.w = q_w
-                    
-                    active_waypoints.append(pose)
-                    active_indices.append(i)
+                navigator.goToPose(make_pose(navigator, x, y, yaw))
+                nav_start = navigator.get_clock().now()
+                while not navigator.isTaskComplete():
+                    feedback = navigator.getFeedback()
+                    if feedback and (navigator.get_clock().now() - nav_start
+                                     > Duration(seconds=GOAL_TIMEOUT_SEC)):
+                        navigator.get_logger().warn(f'{label} タイムアウト。キャンセルします')
+                        navigator.cancelTask()
+                    time.sleep(0.2)
 
-            if not active_waypoints:
-                navigator.get_logger().error("All waypoints have failed 3 consecutive times. Exiting.")
-                break
-
-            navigator.get_logger().info(f"Active waypoints in this loop: {[idx + 1 for idx in active_indices]}")
-
-            # Send waypoints to follow
-            navigator.followWaypoints(active_waypoints)
-
-            # Monitor progress
-            last_waypoint_index = -1
-            while not navigator.isTaskComplete():
-                feedback = navigator.getFeedback()
-                if feedback:
-                    current_wp = feedback.current_waypoint
-                    if current_wp != last_waypoint_index:
-                        global_wp_index = active_indices[current_wp]
-                        navigator.get_logger().info(
-                            f"Navigating to Waypoint {global_wp_index + 1} (x: {WAYPOINTS_DATA[global_wp_index]['x']}, y: {WAYPOINTS_DATA[global_wp_index]['y']})"
-                        )
-                        last_waypoint_index = current_wp
-                time.sleep(1.0)
-
-            # Check loop results
-            result = navigator.getResult()
-            end_time = time.time()
-            duration = end_time - start_time
-
-            # Determine which waypoints failed (missed)
-            missed_indices = []
-            action_result = navigator.result_future.result().result
-            if action_result and hasattr(action_result, 'missed_waypoints'):
-                missed_active_indices = action_result.missed_waypoints
-                missed_indices = [active_indices[mw.index] for mw in missed_active_indices]
-
-            if result == TaskResult.SUCCEEDED:
-                navigator.get_logger().info(f"Loop {loop_count} completed successfully in {duration:.2f} seconds.")
-                # Reset failure counters for all active waypoints
-                for idx in active_indices:
-                    consecutive_failures[idx] = 0
-            else:
-                navigator.get_logger().warn(
-                    f"Loop {loop_count} finished with failures in {duration:.2f} seconds. Result code: {result}"
-                )
-                # Handle failures
-                for idx in active_indices:
-                    if idx in missed_indices:
-                        consecutive_failures[idx] += 1
+                result = navigator.getResult()
+                if result == TaskResult.SUCCEEDED:
+                    navigator.get_logger().info(f'{label} 到達')
+                    consecutive_failures = 0
+                else:
+                    consecutive_failures += 1
+                    navigator.get_logger().warn(
+                        f'{label} 失敗 (result={result}, 連続{consecutive_failures}回)。'
+                        'スキップして次へ')
+                    if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
                         navigator.get_logger().error(
-                            f"Waypoint {idx + 1} failed to reach! Consecutive failures: {consecutive_failures[idx]}"
-                        )
-                        if consecutive_failures[idx] >= 3:
-                            navigator.get_logger().error(
-                                f"Waypoint {idx + 1} failed 3 times consecutively. Safety shutdown triggered."
-                            )
-                            navigator.cancelTask()
-                            rclpy.shutdown()
-                            sys.exit(1)
-                    else:
-                        consecutive_failures[idx] = 0
-
-            time.sleep(2.0)
-
+                            f'{MAX_CONSECUTIVE_FAILURES}回連続で失敗。巡回を中断します')
+                        return
+            navigator.get_logger().info(
+                f'=== Lap{lap} 完了: {time.monotonic() - lap_start:.1f} 秒 ===')
     except KeyboardInterrupt:
-        navigator.get_logger().info("KeyboardInterrupt received. Canceling task and shutting down...")
+        navigator.get_logger().info('Ctrl+C: タスクをキャンセルして終了します')
         navigator.cancelTask()
+    finally:
         rclpy.shutdown()
+
 
 if __name__ == '__main__':
     main()
