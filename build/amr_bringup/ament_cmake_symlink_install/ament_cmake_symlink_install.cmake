@@ -318,6 +318,9 @@ message(STATUS "Execute custom install script")
 # install(DIRECTORY "launch" "config" "worlds" "DESTINATION" "share/amr_bringup")
 ament_cmake_symlink_install_directory("/home/pakku/auto-trash-navigator/src/amr_bringup" DIRECTORY "launch" "config" "worlds" "DESTINATION" "share/amr_bringup")
 
+# install(PROGRAMS "scripts/patrol.py" "DESTINATION" "lib/amr_bringup")
+ament_cmake_symlink_install_programs("/home/pakku/auto-trash-navigator/src/amr_bringup" PROGRAMS "scripts/patrol.py" "DESTINATION" "lib/amr_bringup")
+
 # install(FILES "/home/pakku/auto-trash-navigator/build/amr_bringup/ament_cmake_index/share/ament_index/resource_index/package_run_dependencies/amr_bringup" "DESTINATION" "share/ament_index/resource_index/package_run_dependencies")
 ament_cmake_symlink_install_files("/home/pakku/auto-trash-navigator/src/amr_bringup" FILES "/home/pakku/auto-trash-navigator/build/amr_bringup/ament_cmake_index/share/ament_index/resource_index/package_run_dependencies/amr_bringup" "DESTINATION" "share/ament_index/resource_index/package_run_dependencies")
 

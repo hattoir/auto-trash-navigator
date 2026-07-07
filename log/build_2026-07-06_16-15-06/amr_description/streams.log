@@ -1,0 +1,28 @@
+[0.028s] Invoking command in '/home/pakku/auto-trash-navigator/build/amr_description': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --build /home/pakku/auto-trash-navigator/build/amr_description -- -j16 -l16
+[0.083s] Invoked command in '/home/pakku/auto-trash-navigator/build/amr_description' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --build /home/pakku/auto-trash-navigator/build/amr_description -- -j16 -l16
+[0.096s] Invoking command in '/home/pakku/auto-trash-navigator/build/amr_description': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --install /home/pakku/auto-trash-navigator/build/amr_description
+[0.109s] -- Install configuration: ""
+[0.109s] -- Execute custom install script
+[0.109s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/launch/display.launch.py
+[0.110s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/urdf/amr_robot.urdf.xacro
+[0.110s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/urdf/base_omni_4wheel.xacro
+[0.110s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/urdf/gripper.xacro
+[0.110s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/urdf/so101_arm.xacro
+[0.111s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/rviz/amr.rviz
+[0.112s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/config/amr_controllers.yaml
+[0.112s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/ament_index/resource_index/package_run_dependencies/amr_description
+[0.112s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/ament_index/resource_index/parent_prefix_path/amr_description
+[0.113s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/environment/ament_prefix_path.sh
+[0.113s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/environment/ament_prefix_path.dsv
+[0.113s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/environment/path.sh
+[0.113s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/environment/path.dsv
+[0.114s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/local_setup.bash
+[0.114s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/local_setup.sh
+[0.114s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/local_setup.zsh
+[0.114s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/local_setup.dsv
+[0.115s] -- Symlinking: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/package.dsv
+[0.130s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/ament_index/resource_index/packages/amr_description
+[0.131s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/cmake/amr_descriptionConfig.cmake
+[0.131s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/cmake/amr_descriptionConfig-version.cmake
+[0.131s] -- Up-to-date symlink: /home/pakku/auto-trash-navigator/install/amr_description/share/amr_description/package.xml
+[0.159s] Invoked command in '/home/pakku/auto-trash-navigator/build/amr_description' returned '0': CMAKE_PREFIX_PATH=${CMAKE_PREFIX_PATH}:/opt/ros/jazzy DEBUGINFOD_URLS=https://debuginfod.ubuntu.com /usr/bin/cmake --install /home/pakku/auto-trash-navigator/build/amr_description

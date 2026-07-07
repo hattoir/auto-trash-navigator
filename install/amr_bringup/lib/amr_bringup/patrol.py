@@ -1,0 +1,1 @@
+/home/pakku/auto-trash-navigator/src/amr_bringup/scripts/patrol.py

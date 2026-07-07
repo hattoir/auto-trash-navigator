@@ -2,10 +2,13 @@
 /home/pakku/auto-trash-navigator/install/amr_bringup/share/amr_bringup/launch/gazebo.launch.py
 /home/pakku/auto-trash-navigator/install/amr_bringup/share/amr_bringup/launch/hide_gpu.c
 /home/pakku/auto-trash-navigator/install/amr_bringup/share/amr_bringup/launch/libhide_gpu.so
+/home/pakku/auto-trash-navigator/install/amr_bringup/share/amr_bringup/launch/navigation.launch.py
 /home/pakku/auto-trash-navigator/install/amr_bringup/share/amr_bringup/launch/slam.launch.py
 /home/pakku/auto-trash-navigator/install/amr_bringup/share/amr_bringup/config/ekf.yaml
+/home/pakku/auto-trash-navigator/install/amr_bringup/share/amr_bringup/config/nav2_params.yaml
 /home/pakku/auto-trash-navigator/install/amr_bringup/share/amr_bringup/config/slam_params.yaml
 /home/pakku/auto-trash-navigator/install/amr_bringup/share/amr_bringup/worlds/office_room.sdf
+/home/pakku/auto-trash-navigator/install/amr_bringup/lib/amr_bringup/patrol.py
 /home/pakku/auto-trash-navigator/install/amr_bringup/share/ament_index/resource_index/package_run_dependencies/amr_bringup
 /home/pakku/auto-trash-navigator/install/amr_bringup/share/ament_index/resource_index/parent_prefix_path/amr_bringup
 /home/pakku/auto-trash-navigator/install/amr_bringup/share/amr_bringup/environment/ament_prefix_path.sh
