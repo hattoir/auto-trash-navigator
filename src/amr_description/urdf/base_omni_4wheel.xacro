@@ -19,9 +19,9 @@
         <material name="black"/>
       </visual>
       <collision>
-        <origin xyz="0 0 0" rpy="${pi/2} 0 0"/>
+        <origin xyz="0 0 0" rpy="0 0 0"/>
         <geometry>
-          <cylinder radius="0.05" length="0.04"/>
+          <sphere radius="0.05"/>
         </geometry>
       </collision>
       <inertial>
@@ -34,15 +34,21 @@
     </link>
 
     <gazebo reference="${prefix}_wheel_link">
-      <collision>
+      <collision name="${prefix}_wheel_link_collision">
         <surface>
           <friction>
             <ode>
-              <mu>1.0</mu>
+              <mu>100.0</mu>
               <mu2>0.0</mu2>
               <fdir1 gz:expressed_in="base_footprint">${fdir}</fdir1>
             </ode>
           </friction>
+          <contact>
+            <ode>
+              <kp>1e7</kp>
+              <kd>1.0</kd>
+            </ode>
+          </contact>
         </surface>
       </collision>
     </gazebo>
@@ -51,9 +57,9 @@
   <!-- Macro to add 4 omni wheels -->
   <xacro:macro name="base_omni_4wheel">
     <xacro:omni_wheel prefix="front_left" x_reflect="1" y_reflect="1" fdir="1 -1 0"/>
-    <xacro:omni_wheel prefix="front_right" x_reflect="1" y_reflect="-1" fdir="-1 -1 0"/>
+    <xacro:omni_wheel prefix="front_right" x_reflect="1" y_reflect="-1" fdir="1 1 0"/>
     <xacro:omni_wheel prefix="rear_left" x_reflect="-1" y_reflect="1" fdir="1 1 0"/>
-    <xacro:omni_wheel prefix="rear_right" x_reflect="-1" y_reflect="-1" fdir="-1 1 0"/>
+    <xacro:omni_wheel prefix="rear_right" x_reflect="-1" y_reflect="-1" fdir="1 -1 0"/>
 
     <!-- Mecanum Drive Plugin for Gazebo Sim -->
     <gazebo>
@@ -65,7 +71,7 @@
         <back_left_joint>rear_left_wheel_joint</back_left_joint>
         <back_right_joint>rear_right_wheel_joint</back_right_joint>
         <wheel_separation>0.36</wheel_separation>
-        <wheel_base>0.30</wheel_base>
+        <wheelbase>0.30</wheelbase>
         <wheel_radius>0.05</wheel_radius>
         <topic>/cmd_vel</topic>
         <odom_topic>/odom</odom_topic>
