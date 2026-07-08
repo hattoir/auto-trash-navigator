@@ -261,5 +261,119 @@
       </link>
     </model>
 
+    <!-- Paper Trash 1 near WP1 (2.4, -2.4) -->
+    <model name="paper_trash_1">
+      <static>false</static>
+      <pose>2.2 -1.8 0.035 0 0 0</pose>
+      <link name="link">
+        <inertial>
+          <mass>0.02</mass>
+          <inertia>
+            <ixx>0.0000098</ixx>
+            <ixy>0.0</ixy>
+            <ixz>0.0</ixz>
+            <iyy>0.0000098</iyy>
+            <iyz>0.0</iyz>
+            <izz>0.0000098</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>0.92 0.92 0.88 1</ambient>
+            <diffuse>0.92 0.92 0.88 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Paper Trash 2 near WP2 (0.0, 2.4) -->
+    <model name="paper_trash_2">
+      <static>false</static>
+      <pose>0.4 2.0 0.035 0 0 0</pose>
+      <link name="link">
+        <inertial>
+          <mass>0.02</mass>
+          <inertia>
+            <ixx>0.0000098</ixx>
+            <ixy>0.0</ixy>
+            <ixz>0.0</ixz>
+            <iyy>0.0000098</iyy>
+            <iyz>0.0</iyz>
+            <izz>0.0000098</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>0.92 0.92 0.88 1</ambient>
+            <diffuse>0.92 0.92 0.88 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- Paper Trash 3 near WP3 (-2.4, 0.0) -->
+    <model name="paper_trash_3">
+      <static>false</static>
+      <pose>-1.8 0.5 0.035 0 0 0</pose>
+      <link name="link">
+        <inertial>
+          <mass>0.02</mass>
+          <inertia>
+            <ixx>0.0000098</ixx>
+            <ixy>0.0</ixy>
+            <ixz>0.0</ixz>
+            <iyy>0.0000098</iyy>
+            <iyz>0.0</iyz>
+            <izz>0.0000098</izz>
+          </inertia>
+        </inertial>
+        <collision name="collision">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <sphere>
+              <radius>0.035</radius>
+            </sphere>
+          </geometry>
+          <material>
+            <ambient>0.92 0.92 0.88 1</ambient>
+            <diffuse>0.92 0.92 0.88 1</diffuse>
+            <specular>0.1 0.1 0.1 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
   </world>
 </sdf>

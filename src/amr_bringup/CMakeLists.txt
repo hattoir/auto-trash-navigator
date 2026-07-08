@@ -32,6 +32,7 @@ install(DIRECTORY
 
 install(PROGRAMS
   scripts/patrol.py
+  scripts/trash_detector.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
