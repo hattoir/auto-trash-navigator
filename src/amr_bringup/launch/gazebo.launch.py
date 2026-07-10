@@ -143,7 +143,8 @@ def generate_launch_description():
         name='robot_state_publisher',
         output='screen',
         parameters=[{
-            'robot_description': Command(['xacro ', xacro_file])
+            'robot_description': Command(['xacro ', xacro_file]),
+            'use_sim_time': True
         }]
     )
 
@@ -168,6 +169,9 @@ def generate_launch_description():
         executable='parameter_bridge',
         name='ros_gz_bridge',
         output='screen',
+        parameters=[{
+            'use_sim_time': True
+        }],
         arguments=[
             '/clock@rosgraph_msgs/msg/Clock[gz.msgs.Clock',
             '/cmd_vel@geometry_msgs/msg/Twist@gz.msgs.Twist',
@@ -177,7 +181,13 @@ def generate_launch_description():
             '/camera/depth_image@sensor_msgs/msg/Image[gz.msgs.Image',
             '/camera/camera_info@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo',
             '/world/office_room/model/visual_amr/joint_state@sensor_msgs/msg/JointState[gz.msgs.Model',
-            '/lidar@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan'
+            '/lidar@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan',
+            '/attach_trash_1@std_msgs/msg/Empty[gz.msgs.Empty',
+            '/detach_trash_1@std_msgs/msg/Empty[gz.msgs.Empty',
+            '/attach_trash_2@std_msgs/msg/Empty[gz.msgs.Empty',
+            '/detach_trash_2@std_msgs/msg/Empty[gz.msgs.Empty',
+            '/attach_trash_3@std_msgs/msg/Empty[gz.msgs.Empty',
+            '/detach_trash_3@std_msgs/msg/Empty[gz.msgs.Empty'
         ],
         remappings=[
             ('/camera/image', '/camera/image_raw'),
@@ -251,6 +261,15 @@ def generate_launch_description():
         ]
     )
 
+    # 8. Static Transform Publisher world -> odom
+    world_to_odom_tf_publisher = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='world_to_odom_static_tf_publisher',
+        arguments=['--x', '0', '--y', '0', '--z', '0', '--yaw', '0', '--pitch', '0', '--roll', '0', '--frame-id', 'world', '--child-frame-id', 'odom'],
+        parameters=[{'use_sim_time': True}]
+    )
+
     return LaunchDescription([
         headless_arg,
         gazebo_server,
@@ -262,7 +281,8 @@ def generate_launch_description():
         arm_controller_spawner,
         gripper_controller_spawner,
         depth_to_scan,
-        ekf_node
+        ekf_node,
+        world_to_odom_tf_publisher
     ])
 
 

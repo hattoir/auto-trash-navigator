@@ -49,7 +49,8 @@ def generate_launch_description():
             'params_file': LaunchConfiguration('params_file'),
             'use_sim_time': LaunchConfiguration('use_sim_time'),
             'slam': 'False',
-            'autostart': 'true'
+            'autostart': 'true',
+            'use_composition': 'False'
         }.items()
     )
 

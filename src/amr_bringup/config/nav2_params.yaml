@@ -97,7 +97,8 @@ controller_server:
     general_goal_checker:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
-      xy_goal_tolerance: 0.25
+      # Changed xy_goal_tolerance from 0.25 to 0.05 to fix the 0.25m early stopping error.
+      xy_goal_tolerance: 0.05
       yaw_goal_tolerance: 0.25
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
