@@ -196,6 +196,31 @@
     </plugin>
   </gazebo>
 
+  <!-- DetachableJoint plugins for trash pickup -->
+  <gazebo>
+    <plugin filename="gz-sim-detachable-joint-system" name="gz::sim::systems::DetachableJoint">
+      <parent_link>link6</parent_link>
+      <child_model>paper_trash_1</child_model>
+      <child_link>link</child_link>
+      <attach_topic>/attach_trash_1</attach_topic>
+      <detach_topic>/detach_trash_1</detach_topic>
+    </plugin>
+    <plugin filename="gz-sim-detachable-joint-system" name="gz::sim::systems::DetachableJoint">
+      <parent_link>link6</parent_link>
+      <child_model>paper_trash_2</child_model>
+      <child_link>link</child_link>
+      <attach_topic>/attach_trash_2</attach_topic>
+      <detach_topic>/detach_trash_2</detach_topic>
+    </plugin>
+    <plugin filename="gz-sim-detachable-joint-system" name="gz::sim::systems::DetachableJoint">
+      <parent_link>link6</parent_link>
+      <child_model>paper_trash_3</child_model>
+      <child_link>link</child_link>
+      <attach_topic>/attach_trash_3</attach_topic>
+      <detach_topic>/detach_trash_3</detach_topic>
+    </plugin>
+  </gazebo>
+
   <!-- IMU Sensor -->
   <gazebo reference="base_link">
     <sensor name="imu_sensor" type="imu">

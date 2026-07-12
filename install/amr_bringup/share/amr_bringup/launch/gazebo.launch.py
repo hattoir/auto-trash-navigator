@@ -1,1 +1,0 @@
-/home/pakku/auto-trash-navigator/src/amr_bringup/launch/gazebo.launch.py

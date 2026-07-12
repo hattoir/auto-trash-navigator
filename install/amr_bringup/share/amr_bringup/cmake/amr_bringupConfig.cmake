@@ -1,1 +1,0 @@
-/home/pakku/auto-trash-navigator/build/amr_bringup/ament_cmake_core/amr_bringupConfig.cmake

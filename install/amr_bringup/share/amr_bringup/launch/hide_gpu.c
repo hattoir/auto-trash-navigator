@@ -1,1 +1,0 @@
-/home/pakku/auto-trash-navigator/src/amr_bringup/launch/hide_gpu.c

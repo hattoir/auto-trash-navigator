@@ -1,1 +1,0 @@
-/home/pakku/auto-trash-navigator/build/amr_control/ament_cmake_core/amr_controlConfig.cmake
