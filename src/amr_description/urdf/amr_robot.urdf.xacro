@@ -120,7 +120,7 @@
 
   <!-- Self collision settings for base_link -->
   <gazebo reference="base_link">
-    <self_collision>true</self_collision>
+    <self_collision>false</self_collision>
   </gazebo>
 
   <!-- ros2_control configuration for arm and gripper -->
