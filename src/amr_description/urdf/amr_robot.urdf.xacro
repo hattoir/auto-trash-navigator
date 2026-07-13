@@ -212,7 +212,7 @@
   <gazebo>
     <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
       <parameters>$(find amr_description)/config/amr_controllers.yaml</parameters>
-      <hold_joints>false</hold_joints>
+      <hold_joints>true</hold_joints>
     </plugin>
   </gazebo>
 
