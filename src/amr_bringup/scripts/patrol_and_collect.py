@@ -19,6 +19,11 @@ WAYPOINTS = [
     (0.0, 2.4),
     (-2.4, 0.0),
 ]
+TRASH_COORDINATES = {
+    1: (2.2, -1.8),
+    2: (0.2, 2.2),
+    3: (-2.2, 0.2),
+}
 APPROACH_DISTANCE = 0.30
 MAX_CONSECUTIVE_FAILURES = 3
 GOAL_TIMEOUT_SEC = 120.0
@@ -259,19 +264,48 @@ def main():
                 navigator.get_logger().info(f"[State Transition] -> COLLECT. Target Trash ID: {trash_id}, Pos: ({tx:.3f}, {ty:.3f})")
                 
                 success = False
+                
+                # Check closest trash ID for logging
+                closest_id = 1
+                min_dist = float('inf')
+                for i, (cx, cy) in TRASH_COORDINATES.items():
+                    dist = math.sqrt((tx - cx)**2 + (ty - cy)**2)
+                    if dist < min_dist:
+                        min_dist = dist
+                        closest_id = i
+                navigator.get_logger().info(f"Targeting Trash ID {closest_id} based on map coordinates.")
+
                 for attempt in range(1, 3):
                     navigator.get_logger().info(f"Attempting manipulator pick-and-place (attempt {attempt}/2)...")
+                    
+                    # Compute relative coordinates to base_footprint for logging/debugging
+                    rx, ry, ryaw = get_robot_pose(navigator)
+                    if rx is not None:
+                        dx = tx - rx
+                        dy = ty - ry
+                        x_rel = dx * math.cos(ryaw) + dy * math.sin(ryaw)
+                        y_rel = -dx * math.sin(ryaw) + dy * math.cos(ryaw)
+                        navigator.get_logger().info(f"Relative position in base_footprint frame: x={x_rel:.3f}, y={y_rel:.3f}, z={tz:.3f}")
+                    
                     if not navigator.pick_client.wait_for_service(timeout_sec=5.0):
                         navigator.get_logger().error("Pick-and-place service /pick_trash not available!")
                         time.sleep(2.0)
                         continue
                     
                     req = GetPlan.Request()
-                    req.goal = make_pose(navigator, tx, ty, tz)
+                    req.goal = PoseStamped()
+                    req.goal.header.frame_id = 'map'
+                    req.goal.header.stamp = navigator.get_clock().now().to_msg()
+                    req.goal.pose.position.x = float(tx)
+                    req.goal.pose.position.y = float(ty)
+                    req.goal.pose.position.z = float(tz)
+                    req.goal.pose.orientation.w = 1.0
+                    
                     future = navigator.pick_client.call_async(req)
                     
-                    # Spin until future completes
-                    while not future.done() and rclpy.ok():
+                    # Spin until future completes with a 120s timeout
+                    start_time = time.monotonic()
+                    while not future.done() and (time.monotonic() - start_time < 120.0) and rclpy.ok():
                         time.sleep(0.1)
                         
                     if future.done():
@@ -284,6 +318,34 @@ def main():
                             navigator.get_logger().warn(f"Manipulator pick-and-place attempt {attempt} failed.")
                     else:
                         navigator.get_logger().warn(f"Manipulator pick-and-place attempt {attempt} timed out.")
+                        
+                    # If first attempt failed, adjust vehicle position (0.05m forward)
+                    if attempt == 1:
+                        navigator.get_logger().info("First pick attempt failed. Attempting recovery: adjusting vehicle position 0.05m forward...")
+                        rx, ry, ryaw = get_robot_pose(navigator)
+                        if rx is not None:
+                            adj_x = rx + 0.05 * math.cos(ryaw)
+                            adj_y = ry + 0.05 * math.sin(ryaw)
+                            adj_pose = make_pose(navigator, adj_x, adj_y, ryaw)
+                            navigator.get_logger().info(f"Moving to adjusted pose: ({adj_x:.3f}, {adj_y:.3f})")
+                            navigator.goToPose(adj_pose)
+                            
+                            move_start = navigator.get_clock().now()
+                            aborted = False
+                            while not navigator.isTaskComplete():
+                                if (navigator.get_clock().now() - move_start) > Duration(seconds=30.0):
+                                    navigator.get_logger().warn("Adjustment movement timed out (30s limit). Cancelling.")
+                                    navigator.cancelTask()
+                                    aborted = True
+                                    break
+                                time.sleep(0.1)
+                            
+                            result = navigator.getResult()
+                            if not aborted and result == TaskResult.SUCCEEDED:
+                                navigator.get_logger().info("Successfully moved 0.05m forward for adjustment.")
+                            else:
+                                navigator.get_logger().warn("Failed to move forward for adjustment.")
+                            time.sleep(1.0) # Wait a bit before retry
                 
                 with navigator.lock:
                     if success:
