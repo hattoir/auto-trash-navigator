@@ -44,7 +44,15 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}]
     )
 
-    # 5. Trash Detector node
+    # 5. Image Synchronizer node (external helper script)
+    image_synchronizer_node = Node(
+        executable='/home/pakku/auto-trash-navigator/image_synchronizer.py',
+        name='image_synchronizer',
+        output='screen',
+        parameters=[{'use_sim_time': True}]
+    )
+
+    # 6. Trash Detector node (remapped to synchronized topics)
     trash_detector_node = Node(
         package='amr_bringup',
         executable='trash_detector.py',
@@ -52,12 +60,20 @@ def generate_launch_description():
         output='screen',
         parameters=[{
             'use_sim_time': True,
-            'image_topic': '/camera/image_raw',
-            'depth_topic': '/camera/depth_image_raw'
+            'image_topic': '/camera/image_raw_sync',
+            'depth_topic': '/camera/depth_image_raw_sync',
+            'camera_info_topic': '/camera/camera_info_sync',
+            'h_min': 10,
+            'h_max': 50,
+            's_min': 0,
+            's_max': 60,
+            'v_min': 100,
+            'v_max': 255,
+            'min_area': 5.0
         }]
     )
 
-    # 6. Patrol and Collect node (with set_initial_pose:=True)
+    # 7. Patrol and Collect node (with set_initial_pose:=True)
     patrol_and_collect_node = Node(
         package='amr_bringup',
         executable='patrol_and_collect.py',
@@ -69,19 +85,37 @@ def generate_launch_description():
         ]
     )
 
-    # Wrap all dependent nodes in a TimerAction delayed by 8.0 seconds to allow Gazebo to stabilize first
-    delayed_autonomy_stack = TimerAction(
-        period=8.0,
+    # Wrap all dependent nodes in a TimerAction delayed by 15.0 seconds to allow Gazebo to stabilize first
+    # 1. Navigation group starts at 15.0s
+    delayed_nav = TimerAction(
+        period=15.0,
         actions=[
-            navigation_launch,
+            image_synchronizer_node,
+            navigation_launch
+        ]
+    )
+
+    # 2. MoveIt and Vision start at 25.0s
+    delayed_moveit_vision = TimerAction(
+        period=25.0,
+        actions=[
             move_group_launch,
+            trash_detector_node
+        ]
+    )
+
+    # 3. Pick and Place and Patrol/Collect start at 35.0s
+    delayed_autonomy_logic = TimerAction(
+        period=35.0,
+        actions=[
             pick_and_place_node,
-            trash_detector_node,
             patrol_and_collect_node
         ]
     )
 
     return LaunchDescription([
         gazebo_launch,
-        delayed_autonomy_stack
+        delayed_nav,
+        delayed_moveit_vision,
+        delayed_autonomy_logic
     ])

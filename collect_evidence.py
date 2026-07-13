@@ -44,7 +44,7 @@ class EvidenceCollector(Node):
         try:
             res = subprocess.run(
                 ['gz', 'model', '-m', 'visual_amr', '-p'],
-                capture_output=True, text=True, timeout=1.0
+                capture_output=True, text=True, timeout=10.0
             )
             output = res.stdout
             # Extract Pose [ XYZ (m) ] [ RPY (rad) ]:

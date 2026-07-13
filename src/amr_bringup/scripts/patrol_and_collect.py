@@ -149,13 +149,16 @@ def main():
         
     # Initial pose setup if requested
     navigator.declare_parameter('set_initial_pose', False)
-    if navigator.get_parameter('set_initial_pose').value:
-        navigator.get_logger().info('Setting initial pose to (0,0,0)')
-        navigator.setInitialPose(make_pose(navigator, 0.0, 0.0, 0.0))
-        
+    
     navigator.get_logger().info('Waiting for Nav2 to become active...')
     navigator.waitUntilNav2Active(localizer='amcl')
     navigator.get_logger().info('Nav2 active. Starting patrol and collect sequence.')
+    
+    if navigator.get_parameter('set_initial_pose').value:
+        navigator.get_logger().info('Setting initial pose to (0,0,0)')
+        navigator.setInitialPose(make_pose(navigator, 0.0, 0.0, 0.0))
+        # Wait a short moment to let AMCL initialize particles
+        time.sleep(2.0)
     
     try:
         while rclpy.ok():
