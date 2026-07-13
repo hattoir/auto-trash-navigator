@@ -136,6 +136,17 @@ def main():
                 
     navigator.create_subscription(PoseStamped, '/detected_trash', trash_callback, 10)
     
+    # Wait until simulation clock starts and progresses past 3.0 seconds
+    # to ensure EKF filter and TF buffers are fully initialized.
+    navigator.get_logger().info('Waiting for simulation clock to stabilize (> 3.0s)...')
+    while rclpy.ok():
+        rclpy.spin_once(navigator, timeout_sec=0.1)
+        now = navigator.get_clock().now()
+        sec, nsec = now.seconds_nanoseconds()
+        if sec >= 3:
+            break
+        time.sleep(0.5)
+        
     # Initial pose setup if requested
     navigator.declare_parameter('set_initial_pose', False)
     if navigator.get_parameter('set_initial_pose').value:

@@ -1,4 +1,8 @@
 import os
+
+# Force FastRTPS to use only UDPv4 loopback, completely avoiding shared memory locking/corruption bugs
+os.environ['FASTRTPS_DEFAULT_PROFILES_FILE'] = '/home/pakku/auto-trash-navigator/fastdds_udp_only.xml'
+
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import IncludeLaunchDescription, TimerAction
@@ -65,11 +69,19 @@ def generate_launch_description():
         ]
     )
 
+    # Wrap all dependent nodes in a TimerAction delayed by 8.0 seconds to allow Gazebo to stabilize first
+    delayed_autonomy_stack = TimerAction(
+        period=8.0,
+        actions=[
+            navigation_launch,
+            move_group_launch,
+            pick_and_place_node,
+            trash_detector_node,
+            patrol_and_collect_node
+        ]
+    )
+
     return LaunchDescription([
         gazebo_launch,
-        navigation_launch,
-        move_group_launch,
-        pick_and_place_node,
-        trash_detector_node,
-        patrol_and_collect_node
+        delayed_autonomy_stack
     ])
