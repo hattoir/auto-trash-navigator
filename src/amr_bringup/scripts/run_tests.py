@@ -8,7 +8,7 @@ from rclpy.node import Node
 from geometry_msgs.msg import PoseStamped
 from nav_msgs.srv import GetPlan
 
-def set_trash_pose(x, y, z=0.035):
+def set_trash_pose(x, y, z=0.012):
     cmd = [
         'gz', 'service',
         '-s', '/world/office_room/set_pose',

@@ -35,6 +35,7 @@ install(PROGRAMS
   scripts/trash_detector.py
   scripts/patrol_and_collect.py
   scripts/pick_and_place.py
+  scripts/run_tests.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
