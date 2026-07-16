@@ -55,7 +55,7 @@ def generate_launch_description():
     # 6. Trash Detector node (remapped to synchronized topics)
     trash_detector_node = Node(
         package='amr_bringup',
-        executable='trash_detector.py',
+        executable='depth_trash_detector.py',
         name='trash_detector',
         output='screen',
         parameters=[{

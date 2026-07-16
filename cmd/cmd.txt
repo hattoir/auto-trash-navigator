@@ -1,3 +1,0 @@
-//自動ゴミ捨てミニカーのrivzeの起動コマンド
-//~/auto-trash-navigatorに入ったあと
-ros2 launch amr_description display.launch.py
