@@ -5,6 +5,10 @@ from launch.actions import DeclareLaunchArgument, ExecuteProcess
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch.conditions import IfCondition, UnlessCondition
 from launch_ros.actions import Node
+
+# Force FastDDS to use UDP only to avoid shared memory deadlocks
+os.environ['FASTRTPS_DEFAULT_PROFILES_FILE'] = '/home/pakku/auto-trash-navigator/fastdds_udp_only.xml'
+
 from ros2pkg.api import get_package_names
 from catkin_pkg.package import InvalidPackage, PACKAGE_MANIFEST_FILENAME, parse_package
 
@@ -46,6 +50,41 @@ class GazeboRosPaths:
 def generate_launch_description():
     model_paths, plugin_paths = GazeboRosPaths.get_paths()
 
+    # 0. バックグラウンドで Xvfb 仮想ディスプレイ (:101) を起動 (すでに動いている場合はスキップ)
+    import subprocess
+    import time
+    try:
+        # :101 ディスプレイがすでにアクティブか確認
+        subprocess.run(['xdpyinfo', '-display', ':101'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+        print("Xvfb is already running on :101")
+    except Exception:
+        print("Starting Xvfb virtual framebuffer on display :101...")
+        if os.path.exists('/tmp/.X101-lock'):
+            try:
+                os.remove('/tmp/.X101-lock')
+                print("Removed stale Xvfb lock file /tmp/.X101-lock")
+            except Exception:
+                pass
+        subprocess.Popen([
+            'Xvfb', ':101',
+            '-screen', '0', '1024x768x24',
+            '-ac',
+            '+extension', 'GLX',
+            '+render',
+            '-noreset'
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        
+        # Xvfb が正常に起動して接続可能になるのを最大5秒間待つ (同期)
+        for i in range(50):
+            try:
+                res = subprocess.run(['xdpyinfo', '-display', ':101'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+                if res.returncode == 0:
+                    print(f"Xvfb virtual display is ready on :101 after {i*0.1:.1f} seconds!")
+                    break
+            except Exception:
+                pass
+            time.sleep(0.1)
+
     # 確定したグラフィックス環境変数の辞書
     gazebo_env = {
         'DISPLAY': os.environ.get('DISPLAY', ':0'),
@@ -71,22 +110,14 @@ def generate_launch_description():
         ])
     }
 
-    # サーバー用環境変数：EGL surfaceless + llvmpipe ソフトウェアレンダラ強制 + LD_PRELOAD による GPU 隠蔽でセグフォ防止
+    # サーバー用環境変数：EGL によるヘッドレス Ogre2 レンダリングを実行
     gazebo_server_env = gazebo_env.copy()
-    gazebo_server_env['GZ_RENDERING_ENGINE_SERVER_API'] = 'egl'
-    gazebo_server_env['EGL_PLATFORM'] = 'surfaceless'
-    gazebo_server_env['GB_SURFACE_TYPE'] = 'linear'
-    gazebo_server_env['DISPLAY'] = ''
-    gazebo_server_env['LIBGL_ALWAYS_SOFTWARE'] = '1'
-    gazebo_server_env['GBM_ALWAYS_SOFTWARE'] = '1'
-    gazebo_server_env['EGL_SOFTWARE'] = '1'
-    gazebo_server_env['EGL_DRIVER'] = 'swrast'
-    gazebo_server_env['MESA_LOADER_DRIVER_OVERRIDE'] = 'llvmpipe'
-    gazebo_server_env['GALLIUM_DRIVER'] = 'llvmpipe'
-    gazebo_server_env['LIBGL_DRI2_DISABLE'] = '1'
-    gazebo_server_env['LIBGL_DRI3_DISABLE'] = '1'
-    gazebo_server_env['GZ_SIM_HEADLESS_RENDERING'] = '1'
-    # LD_PRELOAD で /dev/dri と /dev/nvidia を隠して Mesa の driCreateNewScreen3 セグフォを回避
+    gazebo_server_env['GZ_RENDERING_ENGINE_SERVER_API'] = 'egl'  # GLX ではなく EGL
+    if 'DISPLAY' in gazebo_server_env:
+        del gazebo_server_env['DISPLAY']
+    gazebo_server_env['GZ_SIM_HEADLESS_RENDERING'] = '1'  # ヘッドレスレンダリングを有効化
+    
+    # 安全のため LD_PRELOAD による GPU 隠蔽を有効化してセグフォを防止し、Mesa EGL ソフトウェア (llvmpipe) へ安全にフォールバックさせる
     pkg_amr_bringup_temp = get_package_share_directory('amr_bringup')
     gazebo_server_env['LD_PRELOAD'] = os.path.join(pkg_amr_bringup_temp, 'launch', 'libhide_gpu.so')
 
@@ -115,6 +146,7 @@ def generate_launch_description():
             'ruby', '/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz', 'sim',
             '-s', '-r', world_file,
             '--headless-rendering',
+            '--render-engine-server', 'ogre',
             '--force-version', '8'
         ],
         name='gazebo_server',
@@ -191,9 +223,9 @@ def generate_launch_description():
         ],
         remappings=[
             ('/camera/image', '/camera/image_raw'),
-            ('/camera/depth_image', '/camera/depth_image_raw'),
+            ('/camera/depth_image', '/camera/depth_image_raw_vision'),
             ('/world/office_room/model/visual_amr/joint_state', '/joint_states'),
-            ('/lidar', '/scan')
+            ('/lidar', '/scan_raw')
         ]
     )
 
@@ -201,21 +233,21 @@ def generate_launch_description():
     joint_state_broadcaster_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['joint_state_broadcaster'],
+        arguments=['joint_state_broadcaster', '--controller-manager-timeout', '120'],
         output='screen'
     )
 
     arm_controller_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['arm_controller'],
+        arguments=['arm_controller', '--controller-manager-timeout', '120'],
         output='screen'
     )
 
     gripper_controller_spawner = Node(
         package='controller_manager',
         executable='spawner',
-        arguments=['gripper_controller'],
+        arguments=['gripper_controller', '--controller-manager-timeout', '120'],
         output='screen'
     )
 
@@ -270,6 +302,14 @@ def generate_launch_description():
         parameters=[{'use_sim_time': True}]
     )
 
+    # LiDAR Filter Node
+    lidar_filter_node = Node(
+        package='amr_bringup',
+        executable='lidar_filter.py',
+        name='lidar_filter_node',
+        output='screen'
+    )
+
     return LaunchDescription([
         headless_arg,
         gazebo_server,
@@ -282,7 +322,8 @@ def generate_launch_description():
         gripper_controller_spawner,
         depth_to_scan,
         ekf_node,
-        world_to_map_tf_publisher
+        world_to_map_tf_publisher,
+        lidar_filter_node
     ])
 
 

@@ -92,7 +92,7 @@ def main():
             rx, ry, ryaw = get_robot_pose(navigator)
             if rx is not None:
                 dist_to_robot = math.sqrt((tx - rx)**2 + (ty - ry)**2)
-                if dist_to_robot < 0.60:
+                if dist_to_robot < 0.25:
                     return
             
             # Filter out wall corner false detections (true papers are at least 0.5m away from +/- 4.0m walls)
@@ -149,16 +149,70 @@ def main():
         
     # Initial pose setup if requested
     navigator.declare_parameter('set_initial_pose', False)
-    
-    navigator.get_logger().info('Waiting for Nav2 to become active...')
-    navigator.waitUntilNav2Active(localizer='amcl')
-    navigator.get_logger().info('Nav2 active. Starting patrol and collect sequence.')
-    
+
     if navigator.get_parameter('set_initial_pose').value:
-        navigator.get_logger().info('Setting initial pose to (0,0,0)')
-        navigator.setInitialPose(make_pose(navigator, 0.0, 0.0, 0.0))
-        # Wait a short moment to let AMCL initialize particles
-        time.sleep(2.0)
+        from geometry_msgs.msg import PoseWithCovarianceStamped
+        init_pose_pub = navigator.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
+        navigator.get_logger().info('Setting initial pose with tiny covariance to (0,0,0)')
+        
+        # Wait until TF odom -> base_footprint becomes available to prevent extrapolation errors
+        navigator.get_logger().info('Waiting for TF odom -> base_footprint to become available...')
+        latest_time = None
+        while rclpy.ok():
+            try:
+                latest_time = navigator.tf_buffer.get_latest_common_time('odom', 'base_footprint')
+                if latest_time is not None:
+                    break
+            except Exception:
+                pass
+            rclpy.spin_once(navigator, timeout_sec=0.1)
+            time.sleep(0.5)
+            
+        p_cov = PoseWithCovarianceStamped()
+        p_cov.header.frame_id = 'map'
+        p_cov.header.stamp = latest_time.to_msg()
+        p_cov.pose.pose.position.x = 0.0
+        p_cov.pose.pose.position.y = 0.0
+        p_cov.pose.pose.position.z = 0.0
+        p_cov.pose.pose.orientation.w = 1.0
+        
+        # Set extremely small covariance to force AMCL particles to converge instantly
+        p_cov.pose.covariance = [0.0] * 36
+        p_cov.pose.covariance[0] = 0.001   # x
+        p_cov.pose.covariance[7] = 0.001   # y
+        p_cov.pose.covariance[35] = 0.001  # yaw
+        
+        # Wait a bit for connection and publish
+        time.sleep(1.0)
+        init_pose_pub.publish(p_cov)
+        navigator.get_logger().info("Published initial pose with tiny covariance.")
+
+    navigator.get_logger().info('Waiting for AMCL lifecycle node to activate...')
+    navigator._waitForNodeToActivate('amcl')
+        
+    if navigator.get_parameter('set_initial_pose').value:
+        navigator.get_logger().info('Waiting for amcl_pose to be received (non-aggressive wait)...')
+        last_pub_time = time.time()
+        while not navigator.initial_pose_received and rclpy.ok():
+            # Gently trigger spin
+            rclpy.spin_once(navigator, timeout_sec=0.1)
+            # Re-publish initial pose every 3 seconds if not received yet to avoid CPU thrashing
+            now_real = time.time()
+            if now_real - last_pub_time > 3.0:
+                navigator.get_logger().info('Still waiting for amcl_pose, re-publishing initial pose...')
+                try:
+                    latest_time = navigator.tf_buffer.get_latest_common_time('odom', 'base_footprint')
+                    p_cov.header.stamp = latest_time.to_msg()
+                    init_pose_pub.publish(p_cov)
+                    navigator.get_logger().info(f"Re-published initial pose with latest stamp: {latest_time.nanoseconds / 1e9:.3f}s")
+                except Exception:
+                    pass
+                last_pub_time = now_real
+            time.sleep(0.5)
+            
+    navigator.get_logger().info('Waiting for bt_navigator to activate...')
+    navigator._waitForNodeToActivate('bt_navigator')
+    navigator.get_logger().info('Nav2 active. Starting patrol and collect sequence.')
     
     try:
         while rclpy.ok():
@@ -171,14 +225,15 @@ def main():
                 
                 # Perform normal patrol
                 x, y = WAYPOINTS[navigator.current_wp_idx]
-                nx, ny = WAYPOINTS[(navigator.current_wp_idx + 1) % len(WAYPOINTS)]
-                yaw = math.atan2(ny - y, nx - x)
+                tx, ty = TRASH_COORDINATES[navigator.current_wp_idx + 1]
+                yaw = math.atan2(ty - y, tx - x)
                 
                 label = f"WP{navigator.current_wp_idx + 1} ({x:+.1f},{y:+.1f})"
                 navigator.get_logger().info(f"[State Transition] -> PATROL. Target: {label}")
                 
                 pose = make_pose(navigator, x, y, yaw)
                 navigator.goToPose(pose)
+                time.sleep(0.8) # Wait for Action server to accept and start the task
                 nav_start = navigator.get_clock().now()
                 
                 aborted = False
@@ -238,6 +293,7 @@ def main():
                     navigator.get_logger().info(f"Going to approach pose: ({goal_x:.3f}, {goal_y:.3f}) facing {theta:.3f} rad")
                     
                     navigator.goToPose(goal_pose)
+                    time.sleep(0.8) # Wait for Action server to accept and start the task
                     approach_start = navigator.get_clock().now()
                     aborted = False
                     
@@ -343,7 +399,7 @@ def main():
                             adj_pose = make_pose(navigator, adj_x, adj_y, ryaw)
                             navigator.get_logger().info(f"Moving to adjusted pose: ({adj_x:.3f}, {adj_y:.3f})")
                             navigator.goToPose(adj_pose)
-                            
+                            time.sleep(0.8) # Wait for Action server to accept and start the task
                             move_start = navigator.get_clock().now()
                             aborted = False
                             while not navigator.isTaskComplete():

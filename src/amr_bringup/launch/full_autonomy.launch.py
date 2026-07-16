@@ -63,13 +63,14 @@ def generate_launch_description():
             'image_topic': '/camera/image_raw_sync',
             'depth_topic': '/camera/depth_image_raw_sync',
             'camera_info_topic': '/camera/camera_info_sync',
-            'h_min': 10,
-            'h_max': 50,
+            'h_min': 0,
+            'h_max': 180,
             's_min': 0,
-            's_max': 60,
-            'v_min': 100,
+            's_max': 30,
+            'v_min': 240,
             'v_max': 255,
-            'min_area': 5.0
+            'min_area': 15.0,
+            'max_area': 2000.0
         }]
     )
 

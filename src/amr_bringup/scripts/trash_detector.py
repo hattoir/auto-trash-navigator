@@ -19,17 +19,17 @@ class TrashDetector(Node):
         
         # Declare parameters
         self.declare_parameter('image_topic', '/camera/image')
-        self.declare_parameter('depth_topic', '/camera/depth_image')
+        self.declare_parameter('depth_topic', '/camera/depth_image_raw_vision')
         self.declare_parameter('camera_info_topic', '/camera/camera_info')
         self.declare_parameter('optical_frame', 'oak_d_optical_link')
         
         # HSV threshold parameters for white trash detection
-        self.declare_parameter('h_min', 15)
-        self.declare_parameter('h_max', 45)
-        self.declare_parameter('s_min', 2)
-        self.declare_parameter('s_max', 20)
-        self.declare_parameter('v_min', 120)
-        self.declare_parameter('v_max', 200)
+        self.declare_parameter('h_min', 0)
+        self.declare_parameter('h_max', 180)
+        self.declare_parameter('s_min', 0)
+        self.declare_parameter('s_max', 30)
+        self.declare_parameter('v_min', 240)
+        self.declare_parameter('v_max', 255)
         self.declare_parameter('min_area', 20.0)
         self.declare_parameter('max_area', 5000.0)
         
@@ -104,31 +104,71 @@ class TrashDetector(Node):
             self.get_logger().error(f"Failed to convert image or depth: {e}")
             return
         
-        # HSV Thresholding
+        # HSV Thresholding - ROI (avoid chassis/bumper occlusion at bottom and wall/ceiling at top)
+        roi_y_start = 120
+        roi_y_end = 360
         hsv_image = cv2.cvtColor(cv_image, cv2.COLOR_BGR2HSV)
-        lower_bound = np.array([h_min, s_min, v_min], dtype=np.uint8)
-        upper_bound = np.array([h_max, s_max, v_max], dtype=np.uint8)
-        mask = cv2.inRange(hsv_image, lower_bound, upper_bound)
+        roi_hsv = hsv_image[roi_y_start:roi_y_end, :, :]
         
-        # Contours
-        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        
-        debug_img = cv_image.copy()
+        h_channel = roi_hsv[:, :, 0]
+        s_channel = roi_hsv[:, :, 1]
+        v_channel = roi_hsv[:, :, 2]
+        self.get_logger().info(
+            f"HSV ROI Stats: H={h_channel.min()}-{h_channel.max()}, "
+            f"S={s_channel.min()}-{s_channel.max()}, "
+            f"V={v_channel.min()}-{v_channel.max()} | "
+            f"Bounds: H={h_min}-{h_max}, S={s_min}-{s_max}, V={v_min}-{v_max}"
+        )
         
         # Valid mask for depth
         valid_depth_mask = (depth_array > 0.1) & (depth_array < 10.0) & (~np.isnan(depth_array)) & (~np.isinf(depth_array))
         
+        # Near mask: only consider objects within 0.15m to 1.20m in front of the camera (relaxed workspace)
+        near_mask = valid_depth_mask & (depth_array >= 0.15) & (depth_array <= 1.20)
+        roi_near_mask = near_mask[roi_y_start:roi_y_end, :]
+        
+        # Debug depth statistics
+        roi_depth = depth_array[roi_y_start:roi_y_end, :]
+        roi_valid_depth = roi_depth[(~np.isnan(roi_depth)) & (~np.isinf(roi_depth)) & (roi_depth > 0.0)]
+        if len(roi_valid_depth) > 0:
+            self.get_logger().info(
+                f"Depth Stats (ROI): min={roi_valid_depth.min():.3f}m, "
+                f"max={roi_valid_depth.max():.3f}m, "
+                f"near_count={np.sum((roi_valid_depth >= 0.15) & (roi_valid_depth <= 1.20))}"
+            )
+        else:
+            self.get_logger().info("Depth Stats (ROI): No valid depth pixels found!")
+        
+        lower_bound = np.array([h_min, s_min, v_min], dtype=np.uint8)
+        upper_bound = np.array([h_max, s_max, v_max], dtype=np.uint8)
+        mask = cv2.inRange(roi_hsv, lower_bound, upper_bound)
+        
+        # Apply depth-based near filter to isolate trash from distant floor reflections
+        mask = cv2.bitwise_and(mask, mask, mask=roi_near_mask.astype(np.uint8) * 255)
+        
+        non_zero = cv2.countNonZero(mask)
+        if non_zero > 0:
+            self.get_logger().info(f"HSV ROI mask active pixels (after near depth filter): {non_zero}")
+            
+        # Contours on ROI mask
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        debug_img = cv_image.copy()
+        
+        if len(contours) > 0:
+            self.get_logger().info(f"ROI Contours found: {len(contours)}")
+            
         for contour in contours:
             area = cv2.contourArea(contour)
+            self.get_logger().info(f"Contour area: {area:.1f} (min_area: {min_area}, max_area: {max_area})")
             if area < min_area or area > max_area:
                 continue
             
-            # Bounding box
+            # Bounding box in ROI space
             x_rect, y_rect, w_rect, h_rect = cv2.boundingRect(contour)
             
-            # Crop depth patch
-            y_start = max(0, y_rect)
-            y_end = min(depth_array.shape[0], y_rect + h_rect)
+            # Crop depth patch from original full depth image (shift y by roi_y_start)
+            y_start = max(roi_y_start, y_rect + roi_y_start)
+            y_end = min(depth_array.shape[0], y_rect + h_rect + roi_y_start)
             x_start = max(0, x_rect)
             x_end = min(depth_array.shape[1], x_rect + w_rect)
             
@@ -145,14 +185,14 @@ class TrashDetector(Node):
             # Median of depths
             z = np.median(valid_depths)
             
-            # Centroid of contour
+            # Centroid of contour (shift v by roi_y_start)
             M = cv2.moments(contour)
             if M["m00"] != 0:
                 u = M["m10"] / M["m00"]
-                v = M["m01"] / M["m00"]
+                v = (M["m01"] / M["m00"]) + roi_y_start
             else:
                 u = x_rect + w_rect / 2.0
-                v = y_rect + h_rect / 2.0
+                v = y_rect + h_rect / 2.0 + roi_y_start
                 
             # Camera intrinsics
             fx = info_msg.k[0]

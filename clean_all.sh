@@ -10,6 +10,10 @@ pkill -9 -f "python" || true
 pkill -9 -f "image_synchronizer" || true
 pkill -9 -f "patrol_and_collect" || true
 pkill -9 -f "trash_detector" || true
+pkill -9 -u $USER -f "Xvfb" || true
+rm -f /tmp/.X101-lock || true
+rm -f /tmp/.X98-lock || true
+rm -f /tmp/.X99-lock || true
 
 ros2 daemon stop || true
 rm -f /dev/shm/fastrtps_*

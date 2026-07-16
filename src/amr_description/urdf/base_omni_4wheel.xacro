@@ -6,8 +6,9 @@
     <joint name="${prefix}_wheel_joint" type="continuous">
       <parent link="base_link"/>
       <child link="${prefix}_wheel_link"/>
-      <origin xyz="${x_reflect * 0.15} ${y_reflect * 0.18} -0.05" rpy="0 0 ${(1 - y_reflect) * pi / 2}"/>
-      <axis xyz="0 ${y_reflect} 0"/>
+      <origin xyz="${x_reflect * 0.15} ${y_reflect * 0.18} -0.05" rpy="0 0 0"/>
+      <axis xyz="0 -1 0"/>
+      <limit effort="100.0" velocity="20.0"/>
     </joint>
 
     <link name="${prefix}_wheel_link">
@@ -34,6 +35,7 @@
     </link>
 
     <gazebo reference="${prefix}_wheel_link">
+      <self_collision>false</self_collision>
       <collision name="${prefix}_wheel_link_collision">
         <surface>
           <friction>
@@ -57,9 +59,9 @@
   <!-- Macro to add 4 omni wheels -->
   <xacro:macro name="base_omni_4wheel">
     <xacro:omni_wheel prefix="front_left" x_reflect="1" y_reflect="1" fdir="1 -1 0"/>
-    <xacro:omni_wheel prefix="front_right" x_reflect="1" y_reflect="-1" fdir="1 1 0"/>
+    <xacro:omni_wheel prefix="front_right" x_reflect="1" y_reflect="-1" fdir="-1 -1 0"/>
     <xacro:omni_wheel prefix="rear_left" x_reflect="-1" y_reflect="1" fdir="1 1 0"/>
-    <xacro:omni_wheel prefix="rear_right" x_reflect="-1" y_reflect="-1" fdir="1 -1 0"/>
+    <xacro:omni_wheel prefix="rear_right" x_reflect="-1" y_reflect="-1" fdir="-1 1 0"/>
 
     <!-- Mecanum Drive Plugin for Gazebo Sim -->
     <gazebo>

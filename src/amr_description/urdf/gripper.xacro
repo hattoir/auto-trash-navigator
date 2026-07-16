@@ -101,7 +101,7 @@
 
     <!-- Self collision settings for gripper -->
     <gazebo reference="gripper_base_link">
-      <self_collision>true</self_collision>
+      <self_collision>false</self_collision>
     </gazebo>
   </xacro:macro>
 

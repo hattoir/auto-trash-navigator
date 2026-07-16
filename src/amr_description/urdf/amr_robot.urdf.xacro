@@ -123,26 +123,6 @@
     <self_collision>false</self_collision>
   </gazebo>
 
-  <!-- Explicitly disable collisions between wheels and base_link to prevent physics lockup -->
-  <gazebo>
-    <disable_collisions>
-      <link1>base_link</link1>
-      <link2>front_left_wheel_link</link2>
-    </disable_collisions>
-    <disable_collisions>
-      <link1>base_link</link1>
-      <link2>front_right_wheel_link</link2>
-    </disable_collisions>
-    <disable_collisions>
-      <link1>base_link</link1>
-      <link2>rear_left_wheel_link</link2>
-    </disable_collisions>
-    <disable_collisions>
-      <link1>base_link</link1>
-      <link2>rear_right_wheel_link</link2>
-    </disable_collisions>
-  </gazebo>
-
   <!-- ros2_control configuration for arm and gripper -->
   <ros2_control name="amr_robot_system" type="system">
     <hardware>
@@ -212,7 +192,8 @@
   <gazebo>
     <plugin filename="gz_ros2_control-system" name="gz_ros2_control::GazeboSimROS2ControlPlugin">
       <parameters>$(find amr_description)/config/amr_controllers.yaml</parameters>
-      <hold_joints>true</hold_joints>
+      <hold_joints>false</hold_joints>
+      <position_proportional_gain>1000.0</position_proportional_gain>
     </plugin>
   </gazebo>
 

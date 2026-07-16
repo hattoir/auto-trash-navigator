@@ -8,7 +8,7 @@ import rclpy
 from rclpy.node import Node
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.action import ActionClient
-from geometry_msgs.msg import PoseStamped, Pose, Point, Quaternion
+from geometry_msgs.msg import PoseStamped, Pose, Point, Quaternion, Twist
 from std_msgs.msg import Empty
 from sensor_msgs.msg import JointState
 from nav_msgs.srv import GetPlan
@@ -109,6 +109,22 @@ class PickAndPlaceNode(Node):
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         
         self.get_logger().info("Pick and Place Server initialized.")
+        
+        # Default patrol joints fallback
+        self.patrol_joints = [0.0, 0.0, 0.2, 0.0, 1.2, 0.0]
+        
+        # Spawn thread to move arm to patrol posture after node starts
+        threading.Thread(target=self.initialize_patrol_pose, daemon=True).start()
+        
+    def initialize_patrol_pose(self):
+        # Wait for simulation and controller services to settle
+        time.sleep(5.0)
+        self.get_logger().info("Using UPRIGHT patrol posture to keep camera FOV clear...")
+        self.patrol_joints = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            
+        self.get_logger().info("Moving arm to default patrol camera look-down pose...")
+        self.send_arm_trajectory(self.patrol_joints, 3.0)
+        self.get_logger().info("Arm is in patrol camera look-down pose.")
         
     def joint_state_callback(self, msg):
         self.current_joint_state = msg
@@ -339,14 +355,14 @@ class PickAndPlaceNode(Node):
             self.detach_pubs[closest_id].publish(Empty())
             # Open gripper (0.0)
             self.send_gripper_trajectory(0.0, 1.0)
-            # Move to home
-            self.send_arm_trajectory([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2.5)
-            self.get_logger().info("Aborted sequence. Arm returned to home.")
+            # Move to patrol pose
+            self.send_arm_trajectory(self.patrol_joints, 2.5)
+            self.get_logger().info("Aborted sequence. Arm returned to look-down patrol pose.")
         
-        # 1. home
-        self.get_logger().info("[Step 1/11] Moving arm to home...")
-        if not self.send_arm_trajectory([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2.5):
-            abort_sequence("Failed to move to Home at start.")
+        # 1. home (patrol pose)
+        self.get_logger().info("[Step 1/11] Moving arm to home look-down patrol pose...")
+        if not self.send_arm_trajectory(self.patrol_joints, 2.5):
+            abort_sequence("Failed to move to Home patrol pose at start.")
             return response
             
         # 2. プリグラスプ (対象の上方8cm, pitch45deg)
@@ -433,10 +449,10 @@ class PickAndPlaceNode(Node):
             abort_sequence("Failed to open gripper at drop.")
             return response
             
-        # 11. home
-        self.get_logger().info("[Step 11/11] Returning to Home...")
-        if not self.send_arm_trajectory([0.0, 0.0, 0.0, 0.0, 0.0, 0.0], 2.5):
-            self.get_logger().error("Failed to return to Home at end.")
+        # 11. home (patrol pose)
+        self.get_logger().info("[Step 11/11] Returning to Home look-down patrol pose...")
+        if not self.send_arm_trajectory(self.patrol_joints, 2.5):
+            self.get_logger().error("Failed to return to Home patrol pose at end.")
             return response
             
         self.get_logger().info("Pick and place sequence successfully completed!")

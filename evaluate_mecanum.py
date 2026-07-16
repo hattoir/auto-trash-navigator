@@ -52,14 +52,15 @@ def start_simulation():
     
     cmd = [
         "ros2", "launch", "amr_bringup", "gazebo.launch.py",
-        "gz_args:=-r -s empty.sdf"
+        "headless:=true"
     ]
     
+    log_file = open('/tmp/gz_sim_launch.log', 'w')
     proc = subprocess.Popen(
         cmd,
         cwd="/home/pakku/auto-trash-navigator",
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
+        stdout=log_file,
+        stderr=log_file,
         preexec_fn=os.setsid,
         env=env
     )
@@ -104,12 +105,6 @@ def get_physical_pose(retries=5, delay=0.5):
                 if len(pose_lines) == 2:
                     xyz = pose_lines[1]
                     rpy = pose_lines[0]
-                    
-                    # If coordinates match the last state exactly, the simulator transport is lagging.
-                    # Force a sleep and retry.
-                    if _last_xyz is not None and abs(xyz[0] - _last_xyz[0]) < 1e-5 and abs(xyz[1] - _last_xyz[1]) < 1e-5:
-                        time.sleep(0.3)
-                        continue
                     
                     _last_xyz = xyz
                     return (xyz[0], xyz[1], rpy[2])

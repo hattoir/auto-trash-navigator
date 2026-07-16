@@ -45,7 +45,7 @@ def get_physical_pose(retries=5, delay=1.0):
                 if len(pose_lines) == 2:
                     xyz = pose_lines[1]
                     rpy = pose_lines[0]
-                    return (xyz[0], xyz[1], rpy[2])
+                    return (xyz[0], xyz[1], xyz[2], rpy[0], rpy[1], rpy[2])
             else:
                 print(f"⚠️ [Attempt {i+1}/{retries}] gz model returned exit code {res.returncode}. Stderr: {res.stderr.strip()}")
         except subprocess.TimeoutExpired:
@@ -78,7 +78,7 @@ def main():
             print("❌ Failed to query initial pose from simulator.")
             return
             
-        print(f"Initial physical pose: X={p0[0]:.4f}, Y={p0[1]:.4f}, Yaw={p0[2]:.4f}")
+        print(f"Initial physical pose: X={p0[0]:.4f}, Y={p0[1]:.4f}, Z={p0[2]:.4f}, R={p0[3]:.4f}, P={p0[4]:.4f}, Yw={p0[5]:.4f}")
         
         evaluator = MecanumEvaluator()
         time.sleep(1.0)
@@ -106,7 +106,7 @@ def main():
             print("❌ Failed to get pose after Forward Test.")
             evaluator.destroy_node()
             return
-        print(f"Pose after Forward: X={p1[0]:.4f}, Y={p1[1]:.4f}, Yaw={p1[2]:.4f}")
+        print(f"Pose after Forward: X={p1[0]:.4f}, Y={p1[1]:.4f}, Z={p1[2]:.4f}, R={p1[3]:.4f}, P={p1[4]:.4f}, Yw={p1[5]:.4f}")
             
         # 2. Slide Test (linear.y = -0.5)
         print("➡️ Command: Slide Right (linear.y = -0.5)")
@@ -128,7 +128,7 @@ def main():
             print("❌ Failed to get pose after Slide Test.")
             evaluator.destroy_node()
             return
-        print(f"Pose after Slide: X={p2[0]:.4f}, Y={p2[1]:.4f}, Yaw={p2[2]:.4f}")
+        print(f"Pose after Slide: X={p2[0]:.4f}, Y={p2[1]:.4f}, Z={p2[2]:.4f}, R={p2[3]:.4f}, P={p2[4]:.4f}, Yw={p2[5]:.4f}")
             
         # 3. Turn Test (angular.z = 0.5)
         print("➡️ Command: Turn Left (angular.z = 0.5)")
@@ -150,14 +150,14 @@ def main():
             print("❌ Failed to get pose after Turn Test.")
             evaluator.destroy_node()
             return
-        print(f"Pose after Turn: X={p3[0]:.4f}, Y={p3[1]:.4f}, Yaw={p3[2]:.4f}")
+        print(f"Pose after Turn: X={p3[0]:.4f}, Y={p3[1]:.4f}, Z={p3[2]:.4f}, R={p3[3]:.4f}, P={p3[4]:.4f}, Yw={p3[5]:.4f}")
         
         evaluator.destroy_node()
         
         if p1 and p2 and p3:
-            dyaw_fwd = math.atan2(math.sin(p1[2] - p0[2]), math.cos(p1[2] - p0[2]))
-            dyaw_slide = math.atan2(math.sin(p2[2] - p1[2]), math.cos(p2[2] - p1[2]))
-            dyaw_turn = math.atan2(math.sin(p3[2] - p2[2]), math.cos(p3[2] - p2[2]))
+            dyaw_fwd = math.atan2(math.sin(p1[5] - p0[5]), math.cos(p1[5] - p0[5]))
+            dyaw_slide = math.atan2(math.sin(p2[5] - p1[5]), math.cos(p2[5] - p1[5]))
+            dyaw_turn = math.atan2(math.sin(p3[5] - p2[5]), math.cos(p3[5] - p2[5]))
             
             print("\n==================================================")
             print("🏁 FINAL VERIFICATION METRICS (Physical Pose)")

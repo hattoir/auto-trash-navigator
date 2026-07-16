@@ -10,7 +10,7 @@ class ImageSynchronizer(Node):
         
         # Subscriptions
         self.image_sub = self.create_subscription(Image, '/camera/image_raw', self.image_callback, 10)
-        self.depth_sub = self.create_subscription(Image, '/camera/depth_image_raw', self.depth_callback, 10)
+        self.depth_sub = self.create_subscription(Image, '/camera/depth_image_raw_vision', self.depth_callback, 10)
         self.info_sub = self.create_subscription(CameraInfo, '/camera/camera_info', self.info_callback, 10)
         
         # Publishers
