@@ -270,7 +270,7 @@
           </horizontal>
         </scan>
         <range>
-          <min>0.15</min>
+          <!-- 0.45: arm sweeps within 0.45m of lidar during pick; exclude self-hits --><min>0.45</min>
           <max>12.0</max>
         </range>
       </lidar>
