@@ -9,7 +9,8 @@ import time
 import threading
 import rclpy
 from rclpy.duration import Duration
-from geometry_msgs.msg import PoseStamped
+from geometry_msgs.msg import PoseStamped, PoseWithCovarianceStamped, Twist
+from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy, HistoryPolicy
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 from nav_msgs.srv import GetPlan
 import tf2_ros
@@ -27,6 +28,11 @@ TRASH_COORDINATES = {
 APPROACH_DISTANCE = 0.30
 MAX_CONSECUTIVE_FAILURES = 3
 GOAL_TIMEOUT_SEC = 120.0
+# --- Localization health guard (Phase 5 integration fix) ---
+MAP_BOUND = 3.9          # |x|,|y| beyond this = pose escaped the 8x8m room
+COV_LIMIT = 1.0          # amcl covariance diag (x,y) above this = diverged
+RECOVERY_WAIT_SEC = 30.0
+MAX_HEALTH_RECOVERIES = 3
 
 def make_pose(navigator, x, y, yaw):
     p = PoseStamped()
@@ -58,6 +64,58 @@ def get_robot_pose(navigator):
         navigator.get_logger().warn(f"Failed to lookup robot pose: {e}")
         return None, None, None
 
+def localization_recovery(navigator, reason):
+    """Cancel nav, re-seed AMCL with the last healthy pose, wait for re-convergence.
+    NOTE: never uses simulator ground truth (must work on real robot)."""
+    navigator.get_logger().warn(f"[Localization Recovery] triggered: {reason}")
+    try:
+        navigator.cancelTask()
+    except Exception:
+        pass
+    if navigator.last_healthy_pose is None:
+        navigator.get_logger().error(
+            "No healthy pose recorded yet; waiting for AMCL to self-recover.")
+    else:
+        hx, hy, hyaw = navigator.last_healthy_pose
+        p = PoseWithCovarianceStamped()
+        p.header.frame_id = 'map'
+        p.header.stamp = navigator.get_clock().now().to_msg()
+        p.pose.pose.position.x = hx
+        p.pose.pose.position.y = hy
+        p.pose.pose.orientation.z = math.sin(hyaw / 2.0)
+        p.pose.pose.orientation.w = math.cos(hyaw / 2.0)
+        p.pose.covariance = [0.0] * 36
+        # moderate covariance: let scan matching refine, don't pin particles
+        p.pose.covariance[0] = 0.25
+        p.pose.covariance[7] = 0.25
+        p.pose.covariance[35] = 0.15
+        navigator.initpose_pub.publish(p)
+        navigator.get_logger().warn(
+            f"Re-seeded /initialpose with last healthy pose ({hx:.2f}, {hy:.2f}, yaw {hyaw:.2f})")
+    end = time.monotonic() + RECOVERY_WAIT_SEC
+    while time.monotonic() < end and rclpy.ok():
+        rclpy.spin_once(navigator, timeout_sec=0.1)
+    navigator.get_logger().info("[Localization Recovery] wait finished, resuming.")
+
+
+def reconvergence_spin(navigator):
+    """Small in-place +/-0.3 rad wiggle after arm motion so AMCL re-converges
+    (arm reaction force can slip the mecanum base without wheel odometry noticing)."""
+    navigator.get_logger().info("Re-convergence spin (+0.3 / -0.3 rad) after pick...")
+    tw = Twist()
+    for wz in (0.4, -0.4):
+        tw.angular.z = wz
+        end = time.monotonic() + 0.75  # 0.3 rad at 0.4 rad/s
+        while time.monotonic() < end and rclpy.ok():
+            navigator.cmd_pub.publish(tw)
+            rclpy.spin_once(navigator, timeout_sec=0.02)
+            time.sleep(0.05)
+    navigator.cmd_pub.publish(Twist())  # stop
+    end = time.monotonic() + 2.0        # settle + let AMCL update
+    while time.monotonic() < end and rclpy.ok():
+        rclpy.spin_once(navigator, timeout_sec=0.1)
+
+
 def main():
     rclpy.init()
     navigator = BasicNavigator()
@@ -76,6 +134,39 @@ def main():
     navigator.new_trash_event = threading.Event()
     navigator.current_target_trash = None
     navigator.pick_client = navigator.create_client(GetPlan, '/pick_trash')
+
+    # --- Phase 5 integration fix: health guard state ---
+    navigator.nav_fail_count = 0        # consecutive PATROL nav failures
+    navigator.recovery_used = False     # one recovery allowed per failure streak
+    navigator.loc_healthy = True
+    navigator.last_healthy_pose = None
+    navigator.health_fail_streak = 0
+    navigator.initpose_pub = navigator.create_publisher(
+        PoseWithCovarianceStamped, '/initialpose', 10)
+    navigator.cmd_pub = navigator.create_publisher(Twist, '/cmd_vel', 10)
+
+    amcl_qos = QoSProfile(
+        durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        reliability=ReliabilityPolicy.RELIABLE,
+        history=HistoryPolicy.KEEP_LAST, depth=1)
+
+    def amcl_health_callback(msg):
+        x = msg.pose.pose.position.x
+        y = msg.pose.pose.position.y
+        cov_x = msg.pose.covariance[0]
+        cov_y = msg.pose.covariance[7]
+        healthy = (abs(x) <= MAP_BOUND and abs(y) <= MAP_BOUND
+                   and cov_x < COV_LIMIT and cov_y < COV_LIMIT)
+        navigator.loc_healthy = healthy
+        if healthy:
+            navigator.health_fail_streak = 0
+            q = msg.pose.pose.orientation
+            yaw = math.atan2(2.0 * (q.w * q.z + q.x * q.y),
+                             1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+            navigator.last_healthy_pose = (x, y, yaw)
+
+    navigator.create_subscription(
+        PoseWithCovarianceStamped, '/amcl_pose', amcl_health_callback, amcl_qos)
     
     # Subscriber to detected trash
     def trash_callback(msg):
@@ -216,6 +307,19 @@ def main():
     
     try:
         while rclpy.ok():
+            # --- localization health guard ---
+            if not navigator.loc_healthy:
+                navigator.health_fail_streak += 1
+                if navigator.health_fail_streak > MAX_HEALTH_RECOVERIES:
+                    navigator.get_logger().error(
+                        f"Localization unhealthy after {MAX_HEALTH_RECOVERIES} recoveries. Shutting down.")
+                    break
+                localization_recovery(
+                    navigator,
+                    "amcl pose out of map bounds or covariance diverged")
+                navigator.loc_healthy = True  # re-evaluated by next /amcl_pose
+                continue
+
             if navigator.state == 'PATROL':
                 # Check if there is already something in the queue
                 with navigator.lock:
@@ -260,9 +364,26 @@ def main():
                     if result == TaskResult.SUCCEEDED:
                         navigator.get_logger().info(f"Reached {label} successfully.")
                         navigator.current_wp_idx = (navigator.current_wp_idx + 1) % len(WAYPOINTS)
+                        navigator.nav_fail_count = 0
+                        navigator.recovery_used = False
                     else:
-                        navigator.get_logger().warn(f"Failed to reach {label} (result={result}). Trying next.")
+                        navigator.nav_fail_count += 1
+                        navigator.get_logger().warn(
+                            f"Failed to reach {label} (result={result}). "
+                            f"Consecutive failures: {navigator.nav_fail_count}/{MAX_CONSECUTIVE_FAILURES}")
                         navigator.current_wp_idx = (navigator.current_wp_idx + 1) % len(WAYPOINTS)
+                        if navigator.nav_fail_count >= MAX_CONSECUTIVE_FAILURES:
+                            if not navigator.recovery_used:
+                                localization_recovery(
+                                    navigator,
+                                    f"{MAX_CONSECUTIVE_FAILURES} consecutive nav failures")
+                                navigator.recovery_used = True
+                                navigator.nav_fail_count = 0
+                            else:
+                                navigator.get_logger().error(
+                                    "Nav failures persist after recovery. Shutting down cleanly.")
+                                break
+                        time.sleep(1.0)  # prevent tight failure loop
                         
             elif navigator.state == 'APPROACH':
                 with navigator.lock:
@@ -376,7 +497,8 @@ def main():
                     # Spin until future completes with a 120s timeout
                     start_time = time.monotonic()
                     while not future.done() and (time.monotonic() - start_time < 120.0) and rclpy.ok():
-                        time.sleep(0.1)
+                        rclpy.spin_once(navigator, timeout_sec=0.1)  # required: service response never arrives without spinning
+                        time.sleep(0.05)
                         
                     if future.done():
                         res = future.result()
@@ -417,6 +539,9 @@ def main():
                                 navigator.get_logger().warn("Failed to move forward for adjustment.")
                             time.sleep(1.0) # Wait a bit before retry
                 
+                if success:
+                    reconvergence_spin(navigator)
+
                 with navigator.lock:
                     if success:
                         navigator.processed_trash.append(navigator.current_target_trash)
