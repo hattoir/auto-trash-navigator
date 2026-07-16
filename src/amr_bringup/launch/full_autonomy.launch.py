@@ -63,6 +63,7 @@ def generate_launch_description():
             'image_topic': '/camera/image_raw_sync',
             'depth_topic': '/camera/depth_image_raw_sync',
             'camera_info_topic': '/camera/camera_info_sync',
+            'optical_frame': 'oak_d_optical_link',
             'h_min': 0,
             'h_max': 180,
             's_min': 0,
