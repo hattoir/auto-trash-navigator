@@ -242,7 +242,6 @@ def main():
     navigator.declare_parameter('set_initial_pose', False)
 
     if navigator.get_parameter('set_initial_pose').value:
-        from geometry_msgs.msg import PoseWithCovarianceStamped
         init_pose_pub = navigator.create_publisher(PoseWithCovarianceStamped, '/initialpose', 10)
         navigator.get_logger().info('Setting initial pose with tiny covariance to (0,0,0)')
         
