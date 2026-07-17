@@ -61,7 +61,7 @@ class DepthTrashDetector(Node):
 
         self.rays = None            # (H,W,3) unit-less ray dirs in optical frame
         self.info = None
-        self.opt_to_base = None     # 4x4 static transform matrix
+        self._fit_logged = False
         self.detected_trash_list = []  # map-frame dedupe (0.3m)
         self.last_proc_stamp = None
 
@@ -89,43 +89,14 @@ class DepthTrashDetector(Node):
                               np.ones_like(uu)), axis=-1)
         self.get_logger().info(f"CameraInfo received ({w}x{h}, fx={fx:.1f})")
 
-    def _lookup_static(self, optical_frame):
-        try:
-            t = self.tf_buffer.lookup_transform(
-                'base_footprint', optical_frame, rclpy.time.Time(),
-                timeout=Duration(seconds=0.5))
-        except Exception as e:
-            self.get_logger().warn(f"TF base_footprint<-{optical_frame} not ready: {e}",
-                                   throttle_duration_sec=5.0)
-            return None
-        q = t.transform.rotation
-        x, y, z, w = q.x, q.y, q.z, q.w
-        R = np.array([
-            [1-2*(y*y+z*z), 2*(x*y-z*w),   2*(x*z+y*w)],
-            [2*(x*y+z*w),   1-2*(x*x+z*z), 2*(y*z-x*w)],
-            [2*(x*z-y*w),   2*(y*z+x*w),   1-2*(x*x+y*y)]], dtype=np.float32)
-        T = np.eye(4, dtype=np.float32)
-        T[:3, :3] = R
-        T[:3, 3] = (t.transform.translation.x,
-                    t.transform.translation.y,
-                    t.transform.translation.z)
-        return T
-
     # ------------------------------------------------------------------
     def depth_cb(self, msg):
         if self.rays is None:
             return
-        # throttle
         stamp = msg.header.stamp.sec + msg.header.stamp.nanosec * 1e-9
         if self.last_proc_stamp is not None and stamp - self.last_proc_stamp < self.min_period:
             return
         self.last_proc_stamp = stamp
-
-        optical_frame = self.optical_frame_param or msg.header.frame_id
-        if self.opt_to_base is None:
-            self.opt_to_base = self._lookup_static(optical_frame)
-            if self.opt_to_base is None:
-                return
 
         if msg.encoding == '32FC1':
             depth = np.frombuffer(msg.data, dtype=np.float32).reshape(msg.height, msg.width)
@@ -135,36 +106,66 @@ class DepthTrashDetector(Node):
         else:
             self.get_logger().error(f"Unsupported depth encoding: {msg.encoding}")
             return
+        depth = np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
 
-        valid = np.isfinite(depth) & (depth > 0.2) & (depth < self.x_max + 1.0)
-        # 3D in optical frame
-        pts = self.rays * depth[..., None]                       # (H,W,3)
-        # to base_footprint
-        R, tvec = self.opt_to_base[:3, :3], self.opt_to_base[:3, 3]
-        pb = pts @ R.T + tvec                                    # (H,W,3)
-        zb = pb[..., 2]
-        xb = pb[..., 0]
-        band = valid & (zb > self.z_min) & (zb < self.z_max) \
-            & (xb > 0.2) & (xb < self.x_max)
+        # --- 自己較正: 深度画像そのものから床面(カメラ高さh・ピッチth)を推定 ---
+        # 中央±40列の縦プロファイルで 1/depth が y' に対し直線になる性質を利用。
+        # TFの高さ誤差・スポーン浮き・実機の車高差に影響されない。
+        info = self.info
+        fy, cy, cx = info.k[4], info.k[5], info.k[2]
+        c0, c1 = max(int(cx) - 40, 0), min(int(cx) + 40, msg.width)
+        prof = np.where((depth[:, c0:c1] > 0.25) & (depth[:, c0:c1] < 6.0),
+                        depth[:, c0:c1], np.nan)
+        with np.errstate(all='ignore'):
+            dcol = np.nanmedian(prof, axis=1)
+        yprime = (np.arange(msg.height, dtype=np.float64) - cy) / fy
+        okrow = np.isfinite(dcol) & (dcol > 0.3) & (yprime > 0.05)
+        if okrow.sum() < 30:
+            return
+        X = yprime[okrow]
+        Y = 1.0 / dcol[okrow]
+        A = np.vstack([X, np.ones_like(X)]).T
+        (slope, icept), *_ = np.linalg.lstsq(A, Y, rcond=None)
+        theta = math.atan2(icept, slope)
+        h = math.cos(theta) / slope if slope > 1e-6 else -1.0
+        if not (0.05 < h < 1.0 and math.radians(3) < theta < math.radians(30)):
+            self.get_logger().warn(
+                f"floor fit rejected (h={h:.2f}, th={math.degrees(theta):.1f}deg)",
+                throttle_duration_sec=10.0)
+            return
+        if not self._fit_logged:
+            self.get_logger().info(
+                f"Self-calibrated floor: camera h={h:.3f}m pitch={math.degrees(theta):.1f}deg")
+            self._fit_logged = True
+
+        # --- フィット床面を基準に全画素の高さ/前方距離を計算 ---
+        xo = self.rays[..., 0] * depth   # optical x (right)
+        yo = self.rays[..., 1] * depth   # optical y (down)
+        zo = depth                       # optical z (forward)
+        ct, st = math.cos(theta), math.sin(theta)
+        Xf = ct * zo - st * yo           # 前方距離(カメラ直下基準)
+        Zf = h - (st * zo + ct * yo)     # フィット床からの高さ
+        Yl = -xo                         # 左方向
+
+        valid = (depth > 0.25) & (depth < self.x_max + 1.0)
+        band = valid & (Zf > self.z_min) & (Zf < self.z_max) \
+            & (Xf > 0.2) & (Xf < self.x_max)
         mask = (band.astype(np.uint8)) * 255
         mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((2, 2), np.uint8))
 
         cnt, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
-        published = 0
         for i in range(1, cnt):
             area = stats[i, cv2.CC_STAT_AREA]
             if not (self.min_area <= area <= self.max_area):
                 continue
             m = labels == i
-            bx = float(np.median(xb[m]))
-            by = float(np.median(pb[..., 1][m]))
-            bz = float(np.median(zb[m]))
-            # blob physical size sanity (<= 12cm extent)
-            if (np.percentile(xb[m], 95) - np.percentile(xb[m], 5)) > 0.15:
-                continue
+            bx = float(np.median(Xf[m])) + 0.18   # カメラのbase_footprint前方オフセット
+            by = float(np.median(Yl[m]))
+            bz = float(np.median(Zf[m]))
+            if (np.percentile(Xf[m], 95) - np.percentile(Xf[m], 5)) > 0.15:
+                continue  # 物理サイズが紙くずより大きすぎる
             if not self._publish_map_pose(bx, by, bz, msg.header.stamp):
                 continue
-            published += 1
             self.get_logger().info(
                 f"New trash detected (depth-based) base:({bx:.2f},{by:.2f},{bz:.3f}) "
                 f"area={area}px")
