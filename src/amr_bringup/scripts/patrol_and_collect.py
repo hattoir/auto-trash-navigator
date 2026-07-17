@@ -135,6 +135,17 @@ def main():
     navigator.current_target_trash = None
     navigator.pick_client = navigator.create_client(GetPlan, '/pick_trash')
 
+    # --- DetachableJoint初期切断(Phase 5根本修正) ---
+    # gz-simのDetachableJointは既定で「接続済み」で始まるため、起動直後は
+    # アーム先端と紙くず3個が見えない拘束で繋がっている。これが車体の浮上・
+    # 紙のドリフト・経路計画の異常の原因だった。起動時に明示的に全切断する。
+    import subprocess as _sp
+    for _i in (1, 2, 3):
+        _sp.run(['gz', 'topic', '-t', f'/detach_trash_{_i}',
+                 '-m', 'gz.msgs.Empty', '-p', ' '],
+                capture_output=True, timeout=5)
+    navigator.get_logger().info('Detached all trash joints at startup (gz DetachableJoint defaults to attached).')
+
     # --- Phase 5 integration fix: health guard state ---
     navigator.nav_fail_count = 0        # consecutive PATROL nav failures
     navigator.recovery_used = False     # one recovery allowed per failure streak
