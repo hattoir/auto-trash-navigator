@@ -39,10 +39,10 @@ class DepthTrashDetector(Node):
                      ('v_min', 240), ('v_max', 255)):
             self.declare_parameter(p, v)  # accepted, unused (depth-based)
         self.declare_parameter('min_area', 5.0)      # blob pixel area lower bound
-        self.declare_parameter('max_area', 2500.0)   # blob pixel area upper bound
+        self.declare_parameter('max_area', 400.0)   # blob pixel area upper bound
         self.declare_parameter('z_min', 0.005)       # m above floor (lower)
         self.declare_parameter('z_max', 0.06)        # m above floor (upper)
-        self.declare_parameter('x_max', 3.5)         # m ahead, detection range cap
+        self.declare_parameter('x_max', 2.5)         # m ahead, detection range cap
         self.declare_parameter('optical_frame', '')  # '' = use depth header frame
         self.declare_parameter('detect_rate', 5.0)   # Hz throttle
 
@@ -163,7 +163,9 @@ class DepthTrashDetector(Node):
             by = float(np.median(Yl[m]))
             bz = float(np.median(Zf[m]))
             if (np.percentile(Xf[m], 95) - np.percentile(Xf[m], 5)) > 0.15:
-                continue  # 物理サイズが紙くずより大きすぎる
+                continue
+            if (np.percentile(Yl[m], 95) - np.percentile(Yl[m], 5)) > 0.15:
+                continue  # 横幅が紙くずより大きい(壁の帯を排除)  # 物理サイズが紙くずより大きすぎる
             if not self._publish_map_pose(bx, by, bz, msg.header.stamp):
                 continue
             self.get_logger().info(
@@ -190,6 +192,8 @@ class DepthTrashDetector(Node):
             self.get_logger().warn(f"TF to map failed: {e}", throttle_duration_sec=5.0)
             return False
         mx, my, mz = pm.point.x, pm.point.y, pm.point.z
+        if abs(mx) > 3.6 or abs(my) > 3.6:
+            return False  # 地図外=幻影
         for tx, ty, tz in self.detected_trash_list:
             if math.hypot(mx - tx, my - ty) < 0.3:
                 return False  # duplicate

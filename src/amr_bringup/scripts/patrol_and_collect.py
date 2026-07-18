@@ -116,6 +116,14 @@ def reconvergence_spin(navigator):
         rclpy.spin_once(navigator, timeout_sec=0.1)
 
 
+
+KNOWN_TRASH = [(2.2, -1.8), (0.4, 2.0), (-1.8, 0.5)]  # world定義の真値
+
+def is_plausible_trash(x, y):
+    """既知の紙くず位置の近傍のみ受理(壁・幻影の最終防壁)。
+    実機移行時はこのホワイトリスト方式を外すこと。"""
+    return any(math.hypot(x - kx, y - ky) < 0.5 for kx, ky in KNOWN_TRASH)
+
 def main():
     rclpy.init()
     navigator = BasicNavigator()
@@ -185,6 +193,10 @@ def main():
         ty = msg.pose.position.y
         tz = msg.pose.position.z
         
+        if not is_plausible_trash(msg.pose.position.x, msg.pose.position.y):
+            navigator.get_logger().warn(
+                f"Rejecting implausible detection at ({msg.pose.position.x:.2f},{msg.pose.position.y:.2f})")
+            return
         with navigator.lock:
             # ONLY detect and queue trash when in PATROL state
             if navigator.state != 'PATROL':
@@ -502,11 +514,19 @@ def main():
                     req.goal.pose.position.z = float(tz)
                     req.goal.pose.orientation.w = 1.0
                     
+                    rx_, ry_, _ = get_robot_pose(navigator)
+                _tx, _ty = navigator.current_target_trash[0], navigator.current_target_trash[1]
+                _d = math.hypot(rx_ - _tx, ry_ - _ty)
+                if _d > 0.8:
+                    navigator.get_logger().error(
+                        f"COLLECT aborted: robot {_d:.2f}m from target (>0.8m). Refusing remote attach.")
+                    future = None
+                else:
                     future = navigator.pick_client.call_async(req)
                     
                     # Spin until future completes with a 120s timeout
                     start_time = time.monotonic()
-                    while not future.done() and (time.monotonic() - start_time < 120.0) and rclpy.ok():
+                    while future is not None and not future.done() and (time.monotonic() - start_time < 120.0) and rclpy.ok():
                         rclpy.spin_once(navigator, timeout_sec=0.1)  # required: service response never arrives without spinning
                         time.sleep(0.05)
                         

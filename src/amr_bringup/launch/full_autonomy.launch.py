@@ -70,8 +70,8 @@ def generate_launch_description():
             's_max': 30,
             'v_min': 240,
             'v_max': 255,
-            'min_area': 15.0,
-            'max_area': 2000.0
+            'min_area': 5.0,
+            'max_area': 400.0
         }]
     )
 
