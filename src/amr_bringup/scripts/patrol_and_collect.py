@@ -505,32 +505,32 @@ def main():
                     req.goal.pose.orientation.w = 1.0
                     
                     rx_, ry_, _ = get_robot_pose(navigator)
-                _tx, _ty = navigator.current_target_trash[0], navigator.current_target_trash[1]
-                _d = math.hypot(rx_ - _tx, ry_ - _ty)
-                if _d > 0.8:
-                    navigator.get_logger().error(
-                        f"COLLECT aborted: robot {_d:.2f}m from target (>0.8m). Refusing remote attach.")
-                    future = None
-                else:
-                    future = navigator.pick_client.call_async(req)
-                    
-                    # Spin until future completes with a 120s timeout
-                    start_time = time.monotonic()
-                    while future is not None and not future.done() and (time.monotonic() - start_time < 120.0) and rclpy.ok():
-                        rclpy.spin_once(navigator, timeout_sec=0.1)  # required: service response never arrives without spinning
-                        time.sleep(0.05)
-                        
-                    if future.done():
-                        res = future.result()
-                        if res is not None and len(res.plan.poses) > 0:
-                            navigator.get_logger().info(f"回収完了: id={trash_id}")
-                            success = True
-                            break
-                        else:
-                            navigator.get_logger().warn(f"Manipulator pick-and-place attempt {attempt} failed.")
+                    _tx, _ty = navigator.current_target_trash[0], navigator.current_target_trash[1]
+                    _d = math.hypot(rx_ - _tx, ry_ - _ty)
+                    if _d > 0.8:
+                        navigator.get_logger().error(
+                            f"COLLECT aborted: robot {_d:.2f}m from target (>0.8m). Refusing remote attach.")
+                        future = None
                     else:
-                        navigator.get_logger().warn(f"Manipulator pick-and-place attempt {attempt} timed out.")
-                        
+                        future = navigator.pick_client.call_async(req)
+
+                        # Spin until future completes with a 120s timeout
+                        start_time = time.monotonic()
+                        while future is not None and not future.done() and (time.monotonic() - start_time < 120.0) and rclpy.ok():
+                            rclpy.spin_once(navigator, timeout_sec=0.1)  # required: service response never arrives without spinning
+                            time.sleep(0.05)
+
+                        if future.done():
+                            res = future.result()
+                            if res is not None and len(res.plan.poses) > 0:
+                                navigator.get_logger().info(f"回収完了: id={trash_id}")
+                                success = True
+                                break
+                            else:
+                                navigator.get_logger().warn(f"Manipulator pick-and-place attempt {attempt} failed.")
+                        else:
+                            navigator.get_logger().warn(f"Manipulator pick-and-place attempt {attempt} timed out.")
+
                     # If first attempt failed, adjust vehicle position (0.05m forward)
                     if attempt == 1:
                         navigator.get_logger().info("First pick attempt failed. Attempting recovery: adjusting vehicle position 0.05m forward...")
@@ -551,7 +551,7 @@ def main():
                                     aborted = True
                                     break
                                 time.sleep(0.1)
-                            
+
                             result = navigator.getResult()
                             if not aborted and result == TaskResult.SUCCEEDED:
                                 navigator.get_logger().info("Successfully moved 0.05m forward for adjustment.")

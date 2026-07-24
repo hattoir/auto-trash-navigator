@@ -408,8 +408,8 @@ class PickAndPlaceNode(Node):
                 min_dist = dist
                 closest_id = i
                 
-        if closest_id is None or min_dist > 0.3:
-            self.get_logger().error(f"Refusing pick: No trash within 0.3m of target coordinate ({mx:.3f}, {my:.3f}). Min dist: {min_dist:.3f}m")
+        if closest_id is None or min_dist > 0.6:
+            self.get_logger().error(f"Refusing pick: No trash within 0.6m of target coordinate ({mx:.3f}, {my:.3f}). Min dist: {min_dist:.3f}m")
             return response
             
         trash_name = f"paper_trash_{closest_id}"
