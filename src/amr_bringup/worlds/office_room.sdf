@@ -262,6 +262,28 @@
       </link>
     </model>
 
+    <!-- Dustbox: fixed drop destination for collected trash. Visual-only (no
+         collision), static. Placed >1.5m from all patrol legs, 0.5m from
+         walls, outside the trash detection whitelist radius. -->
+    <model name="dustbox">
+      <static>true</static>
+      <pose>3.5 -3.5 0.15 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.4 0.4 0.3</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.9 0.6 0.05 1</ambient>
+            <diffuse>0.9 0.6 0.05 1</diffuse>
+            <specular>0.2 0.2 0.2 1</specular>
+          </material>
+        </visual>
+      </link>
+    </model>
+
     <!-- Paper Trash 1 near WP1 (2.4, -2.4) -->
     <model name="paper_trash_1">
       <static>true</static>

@@ -32,6 +32,10 @@ TRASH_COORDINATES = {
     3: (-2.0, -1.2),
 }
 
+# Fixed drop destination (world "dustbox" model, office_room.sdf).
+# sim専用: 実機ではアーム投下そのもので実現。
+DUSTBOX_LOCATION = (3.5, -3.5, 0.35)
+
 def euler_to_quaternion(roll, pitch, yaw):
     cy = math.cos(yaw * 0.5)
     sy = math.sin(yaw * 0.5)
@@ -502,16 +506,16 @@ class PickAndPlaceNode(Node):
             abort_sequence("Failed to move to Drop pose.")
             return response
             
-        # 9. 解放 (Stop pose tracking and final teleport to floor z=0.02)
-        self.get_logger().info(f"[Step 9/11] Detaching trash {trash_name} via Pose Teleport to floor...")
-        drop_pos = self.stop_pose_tracking()
-        
-        if drop_pos:
-            drop_x, drop_y = drop_pos[0], drop_pos[1]
-        else:
-            drop_x, drop_y = mx, my
-            
-        req_str = f'name: "{trash_name}", position: {{x: {drop_x:.4f}, y: {drop_y:.4f}, z: 0.02}}'
+        # 9. 解放 (Stop pose tracking and final teleport to dustbox)
+        # sim専用: 実機ではアーム投下そのもので実現(ドロップ姿勢へ移動して
+        # 開爪するだけでダストボックスに入る設計とする)。ここでは
+        # アーム動作(drop_joints)は演出として維持しつつ、最終座標だけを
+        # ワールド固定のダストボックス位置に差し替える。
+        self.get_logger().info(f"[Step 9/11] Detaching trash {trash_name} via Pose Teleport to dustbox...")
+        self.stop_pose_tracking()
+
+        drop_x, drop_y, drop_z = DUSTBOX_LOCATION
+        req_str = f'name: "{trash_name}", position: {{x: {drop_x:.4f}, y: {drop_y:.4f}, z: {drop_z:.4f}}}'
         cmd = [
             'gz', 'service', '-s', '/world/office_room/set_pose',
             '--reqtype', 'gz.msgs.Pose',
