@@ -61,8 +61,8 @@ def generate_launch_description():
         parameters=[{
             'use_sim_time': True,
             'image_topic': '/camera/image_raw_sync',
-            'depth_topic': '/camera/depth_image_raw_sync',
-            'camera_info_topic': '/camera/camera_info_sync',
+            'depth_topic': '/camera/depth_image_raw_vision',
+            'camera_info_topic': '/camera/camera_info',
             'optical_frame': 'oak_d_optical_link',
             'h_min': 0,
             'h_max': 180,
@@ -71,7 +71,10 @@ def generate_launch_description():
             'v_min': 240,
             'v_max': 255,
             'min_area': 5.0,
-            'max_area': 400.0
+            'max_area': 400.0,
+            'z_min': 0.001,
+            'z_max': 0.08,
+            'x_max': 2.8
         }]
     )
 

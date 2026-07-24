@@ -184,7 +184,8 @@ class DepthTrashDetector(Node):
     def _publish_map_pose(self, bx, by, bz, stamp):
         ps = PointStamped()
         ps.header.frame_id = 'base_footprint'
-        ps.header.stamp = stamp
+        from rclpy.time import Time
+        ps.header.stamp = Time().to_msg()
         ps.point.x, ps.point.y, ps.point.z = bx, by, bz
         try:
             pm = self.tf_buffer.transform(ps, 'map', timeout=Duration(seconds=0.3))
@@ -200,7 +201,8 @@ class DepthTrashDetector(Node):
         self.detected_trash_list.append((mx, my, mz))
         out = PoseStamped()
         out.header.frame_id = 'map'
-        out.header.stamp = stamp
+        from rclpy.time import Time
+        out.header.stamp = Time().to_msg()
         out.pose.position.x, out.pose.position.y, out.pose.position.z = mx, my, mz
         out.pose.orientation.w = 1.0
         self.trash_pub.publish(out)
