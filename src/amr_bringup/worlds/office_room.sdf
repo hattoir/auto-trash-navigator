@@ -267,6 +267,10 @@
       <static>false</static>
       <pose>2.2 -1.8 0.035 0 0 0</pose>
       <link name="link">
+        <velocity_decay>
+          <linear>0.05</linear>
+          <angular>0.05</angular>
+        </velocity_decay>
         <inertial>
           <mass>0.01</mass>
           <inertia>
@@ -305,6 +309,10 @@
       <static>false</static>
       <pose>0.4 2.0 0.035 0 0 0</pose>
       <link name="link">
+        <velocity_decay>
+          <linear>0.05</linear>
+          <angular>0.05</angular>
+        </velocity_decay>
         <inertial>
           <mass>0.01</mass>
           <inertia>
@@ -343,6 +351,10 @@
       <static>false</static>
       <pose>-1.8 0.5 0.035 0 0 0</pose>
       <link name="link">
+        <velocity_decay>
+          <linear>0.05</linear>
+          <angular>0.05</angular>
+        </velocity_decay>
         <inertial>
           <mass>0.01</mass>
           <inertia>
