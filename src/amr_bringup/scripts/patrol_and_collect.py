@@ -117,7 +117,7 @@ def reconvergence_spin(navigator):
 
 
 
-KNOWN_TRASH = [(2.2, -1.8), (0.4, 2.0), (-1.8, 0.5)]  # world定義の真値
+KNOWN_TRASH = [(2.2, -1.8), (0.4, 2.0), (-2.0, -1.2)]  # world定義の真値
 
 def is_plausible_trash(x, y):
     """既知の紙くず位置の近傍のみ受理(壁・幻影の最終防壁)。

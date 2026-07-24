@@ -29,7 +29,7 @@ import tf2_geometry_msgs
 TRASH_COORDINATES = {
     1: (2.2, -1.8),
     2: (0.4, 2.0),
-    3: (-1.8, 0.5),
+    3: (-2.0, -1.2),
 }
 
 def euler_to_quaternion(roll, pitch, yaw):

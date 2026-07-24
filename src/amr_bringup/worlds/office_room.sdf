@@ -264,31 +264,9 @@
 
     <!-- Paper Trash 1 near WP1 (2.4, -2.4) -->
     <model name="paper_trash_1">
-      <static>false</static>
-      <pose>2.2 -1.8 0.035 0 0 0</pose>
+      <static>true</static>
+      <pose>2.2 -1.8 0.012 0 0 0</pose>
       <link name="link">
-        <velocity_decay>
-          <linear>0.05</linear>
-          <angular>0.05</angular>
-        </velocity_decay>
-        <inertial>
-          <mass>0.01</mass>
-          <inertia>
-            <ixx>0.000000576</ixx>
-            <ixy>0.0</ixy>
-            <ixz>0.0</ixz>
-            <iyy>0.000000576</iyy>
-            <iyz>0.0</iyz>
-            <izz>0.000000576</izz>
-          </inertia>
-        </inertial>
-        <collision name="collision">
-          <geometry>
-            <sphere>
-              <radius>0.012</radius>
-            </sphere>
-          </geometry>
-        </collision>
         <visual name="visual">
           <geometry>
             <sphere>
@@ -306,31 +284,9 @@
 
     <!-- Paper Trash 2 near WP2 (0.0, 2.4) -->
     <model name="paper_trash_2">
-      <static>false</static>
-      <pose>0.4 2.0 0.035 0 0 0</pose>
+      <static>true</static>
+      <pose>0.4 2.0 0.012 0 0 0</pose>
       <link name="link">
-        <velocity_decay>
-          <linear>0.05</linear>
-          <angular>0.05</angular>
-        </velocity_decay>
-        <inertial>
-          <mass>0.01</mass>
-          <inertia>
-            <ixx>0.000000576</ixx>
-            <ixy>0.0</ixy>
-            <ixz>0.0</ixz>
-            <iyy>0.000000576</iyy>
-            <iyz>0.0</iyz>
-            <izz>0.000000576</izz>
-          </inertia>
-        </inertial>
-        <collision name="collision">
-          <geometry>
-            <sphere>
-              <radius>0.012</radius>
-            </sphere>
-          </geometry>
-        </collision>
         <visual name="visual">
           <geometry>
             <sphere>
@@ -346,33 +302,11 @@
       </link>
     </model>
 
-    <!-- Paper Trash 3 near WP3 (-2.4, 0.0) -->
+    <!-- Paper Trash 3 relocated off patrol path (was -1.8,0.5, run on WP2->WP3 centerline) -->
     <model name="paper_trash_3">
-      <static>false</static>
-      <pose>-1.8 0.5 0.035 0 0 0</pose>
+      <static>true</static>
+      <pose>-2.0 -1.2 0.012 0 0 0</pose>
       <link name="link">
-        <velocity_decay>
-          <linear>0.05</linear>
-          <angular>0.05</angular>
-        </velocity_decay>
-        <inertial>
-          <mass>0.01</mass>
-          <inertia>
-            <ixx>0.000000576</ixx>
-            <ixy>0.0</ixy>
-            <ixz>0.0</ixz>
-            <iyy>0.000000576</iyy>
-            <iyz>0.0</iyz>
-            <izz>0.000000576</izz>
-          </inertia>
-        </inertial>
-        <collision name="collision">
-          <geometry>
-            <sphere>
-              <radius>0.012</radius>
-            </sphere>
-          </geometry>
-        </collision>
         <visual name="visual">
           <geometry>
             <sphere>
