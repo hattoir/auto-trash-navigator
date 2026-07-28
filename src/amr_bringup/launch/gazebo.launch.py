@@ -53,6 +53,13 @@ def _launch_setup(context, *args, **kwargs):
 
     software_render = LaunchConfiguration('software_render').perform(context).lower() in ('true', '1')
 
+    # レンダーエンジン: 旧来 'ogre'(Ogre1)を固定指定していたため、GPU/CPUに
+    # 関わらずカメラ画像が常時モノクロ(彩度0)化していた(Ogre1のカラー
+    # センサ描画が実質未サポート)。gz sim のデフォルトである 'ogre2' に
+    # 戻すことで色が復活することを実機検証済み。software_render:=true の
+    # 従来経路のみ 'ogre' を維持し、既存の挙動を変えない。
+    render_engine = 'ogre' if software_render else 'ogre2'
+
     # 0. バックグラウンドで Xvfb 仮想ディスプレイ (:101) を起動
     # (すでに動いている場合はスキップ)。
     # この :101 は gazebo_env['DISPLAY'] では参照されない
@@ -167,7 +174,7 @@ def _launch_setup(context, *args, **kwargs):
             'ruby', '/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz', 'sim',
             '-s', '-r', world_file,
             '--headless-rendering',
-            '--render-engine-server', 'ogre',
+            '--render-engine-server', render_engine,
             '--force-version', '8'
         ],
         name='gazebo_server',
@@ -175,12 +182,12 @@ def _launch_setup(context, *args, **kwargs):
         additional_env=gazebo_server_env
     )
 
-    # GUIクライアントの起動（headlessがfalseの時のみ、GUI側をOGRE 1.xで起動してアタッチ）
+    # GUIクライアントの起動（headlessがfalseの時のみ起動してアタッチ）
     gazebo_gui = ExecuteProcess(
         cmd=[
             'ruby', '/opt/ros/jazzy/opt/gz_tools_vendor/bin/gz', 'sim',
             '-g',
-            '--render-engine-gui', 'ogre',
+            '--render-engine-gui', render_engine,
             '--force-version', '8'
         ],
         name='gazebo_gui',

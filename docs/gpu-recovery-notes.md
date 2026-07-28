@@ -80,3 +80,38 @@ EGL(Gazeboのヘッドレスサーバー側)は上書き不要だった。
   `ros2 launch amr_bringup display.launch.py software_render:=true`
 - 本ブランチの変更自体を取り消したい場合: `git revert 9cd23f2`
   (システム設定は変更していないため、これだけで完全に元の状態に戻る)
+
+## 追加調査: render-engine 'ogre'(Ogre1)→'ogre2'への変更
+
+段階5の色復活試験で、GPU使用が確定した状態(nvidia-smiでメモリ使用・
+libGLX_nvidia.so読み込みを確認済み)でも `/camera/image_raw` が全ピクセル
+R=G=B の完全グレー(彩度0)であることが判明した。`gz sim --help` で
+確認したところ、gz simのデフォルトレンダーエンジンは 'ogre2' であり、
+`gazebo.launch.py` が明示的に旧世代の 'ogre'(Ogre1)を指定していた
+ことが分かったため、GPU経路(`software_render:=false`、デフォルト)では
+'ogre2' を使うよう変更した(`render_engine = 'ogre' if software_render
+else 'ogre2'`)。`software_render:=true` の従来経路は 'ogre' のまま維持。
+
+**この変更では色の問題は解決しなかった**: `software_render:=true`
+(従来のCPU/Ogre1経路)でも生の gz トピック(`/camera/image`、
+`pixel_format_type: RGB_INT8` を確認済み)の段階で既に R=G=B の完全グレー
+であることを直接確認した(赤球テストで ambient/diffuse=(1,0,0,1) を
+設定しても変化なし)。つまりこの「灰色描画」問題は **CPU/GPU、Ogre1/Ogre2
+のいずれとも無関係な、別の原因(材質/シェーディング/センサパイプライン
+のいずれか)による、修復前から存在する問題**である。
+
+'ogre2'への変更自体は有害ではない(gz simの推奨デフォルトに戻すだけであり、
+段階5のRTF・非退行スモークテストで問題は確認されなかった)ため、
+GPU経路のデフォルトとして採用し commit した。ただし段階5の「色の復活」
+成功基準(彩度≥100)は本タスクの範囲内では達成できていない。
+
+## 未解決の問題(スコープ外として報告)
+
+「/camera/image_raw が常に無彩色になる」問題は、GPUレンダリング復元
+(本タスクの主題)とは独立した別バグであり、今回は原因未特定のまま
+報告に留める。次の一手としては:
+- office_room.sdf の他の物体(壁・床・障害物)も含めて彩度を確認し、
+  シーン全体が無彩色かを切り分ける
+- gz-sim の rgbd_camera センサプラグインのソース/既知バグを調査する
+- 材質定義に `<pbr>` ブロックを追加した場合に色が出るか試す
+などが考えられるが、いずれも本タスク(GPU描画復元)のスコープを超える。
