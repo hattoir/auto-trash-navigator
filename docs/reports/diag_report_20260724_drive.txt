@@ -1,0 +1,102 @@
+================================================================================
+診断報告書 — run 3「自己位置と物理位置の完全乖離」の根本原因特定
+実施日: 2026-07-24 / 実施者: 独立監査AI(前回再検証と同一セッション系列)
+結論: TF二重配信はシロ。駆動系の3軸符号反転(駆動回帰)を確定。
+指示に従い駆動系は修正せず停止。再検証・push は未実施。
+================================================================================
+
+【診断1: TF二重配信の捜索 — 結果: シロ】
+
+1) 静的解析
+   grep -rn "static_transform" src/*/launch/*.py src/*/scripts/*.py
+   → ヒット1件のみ: src/amr_bringup/launch/gazebo.launch.py:294
+     world_to_map_static_tf_publisher = world -> map の恒等変換。
+     map -> odom の static publisher は src 内に存在しない。
+     (full_autonomy.launch.py は gazebo.launch.py を include するため
+      この world->map は実行される。ただし map->odom ではない)
+
+2) 実行時確認(full_autonomy クリーン起動、13:53:16、T+90s 時点)
+   - tf2_tools view_frames による TF ツリー:
+     world -> map (static) -> odom (rate 10.222) -> base_footprint (rate 30.222)
+     各エッジは1本のみ。二重親・二重エッジなし。
+   - /tf のパブリッシャ列挙 (ros2 topic info /tf -v):
+     Publisher count: 3
+       1. robot_state_publisher (関節TF)
+       2. ekf_filter_node       (odom -> base_footprint 単独)
+       3. amcl                  (map -> odom 単独)
+   → map->odom の broadcaster は amcl のみ。TF二重配信は存在しない。
+   (view_frames の broadcaster 名は全て 'default_authority' 表示のため、
+    パブリッシャ列挙を確定根拠とした)
+
+【診断2: 駆動系の開ループ試験 — 結果: 3軸すべて符号反転(クロ)】
+
+条件: gazebo.launch.py 単独起動(Nav2/AMCL/patrol なし)、13:56:56 実施。
+/cmd_vel を 10Hz×3秒(30メッセージ)配信 → 停止 → 2秒静定後に
+gz model -m visual_amr -p の真値を記録。
+
+試験             期待変位          実測変位(gz真値)      判定
++x 0.2m/s 3s     x: +0.5〜+0.7     x: -0.628 (y: -0.000)   符号反転
++y 0.2m/s 3s     y: +0.5〜+0.7     y: -0.795 (x: -0.001)   符号反転
++yaw 0.5rad/s 3s yaw: 正方向       yaw: -2.450 rad         符号反転
+
+生データ(before → after, 形式: x y z roll pitch yaw):
+  +x:   -0.000 -0.000 -0.000 / 0 0 -0.000
+     → -0.628 -0.000 -0.000 / -0.000 -0.000 0.000
+  +y:   -0.628 -0.000 ... → -0.629 -0.795 ... / yaw 0.001
+  +yaw: -0.629 -0.795 ... → -0.629 -0.795 ... / yaw -2.450
+
+【補強データ: /odom と gz 真値の同時比較(+x 0.2m/s 3s 追加試行)】
+  gz真値:  (-0.629, -0.795) → (-0.024, -0.295)   Δ=(+0.605, +0.500)
+           ※ この時点の機体yaw≈-2.45radのため、機体座標では -x 方向への移動
+  /odom:   ( +0.628, +0.795) → (+0.022, +1.295)
+  → 並進開始前の時点で /odom は gz 真値の「ちょうど符号反転」
+     (odom +0.628,+0.795 vs 真値 -0.628,-0.795)。
+     MecanumDrive プラグインのオドメトリは自身の運動学モデル
+     (指令方向と整合)を積分するため、物理運動と正確に逆向きの
+     自己位置を報告し続ける。
+
+【run 3 の乖離の機構(確定)】
+  Nav2 が前進を指令 → 機体は物理的に逆方向へ走行(壁に押し付く)
+  → /odom は指令方向どおりの移動を報告 → EKF/AMCL は odom を信じて
+  自己位置を前進させ「WP到達成功」を記録 → 物理機体は NW コーナーに
+  釘付けのまま。AMCL のスキャン照合は矛盾を蓄積し、周期的に
+  out of bounds / covariance diverged → Localization Recovery → 再発、
+  最終的に patrol 自己終了。run 3 の全観測事象と整合する。
+
+【欠陥箇所の観測情報(修正はしていない。後続タスク用の参考)】
+  src/amr_description/urdf/base_omni_4wheel.xacro:
+  - gz-sim-mecanum-drive-system プラグイン(topic /cmd_vel, odom 50Hz,
+    publish_odom_tf false, wheel_separation 0.36, wheelbase 0.30, r 0.05)
+  - ホイール定義: front_left(x=+,y=+, fdir "1 -1 0") /
+    front_right(+,-, "-1 -1 0") / rear_left(-,+, "1 1 0") /
+    rear_right(-,-, "-1 1 0")
+  3軸一斉の符号反転は、ホイール関節軸の向きとプラグインの運動学の
+  不一致(全輪の回転極性が逆)に典型的。fdir/関節axis/リフレクトの
+  整合を疑うべきだが、本診断の範囲では特定・修正せず。
+
+【診断とは独立に実施した確定修正(commit済み)】
+  26a3faa fix: add velocity_decay to paper_trash links
+          (perpetual-roll drift countermeasure)
+  office_room.sdf の paper_trash_1〜3 の <link> に
+  <velocity_decay><linear>0.05</linear><angular>0.05</angular></velocity_decay>
+  を追加(3箇所、XML妥当性確認済み)。run 2/3 で観測された trash_3 の
+  約1.3cm/s 永久漂流への対策。効果検証は駆動回帰の解消後の再検証に委ねる。
+
+【判定と停止】
+  診断2の指示「符号反転や無動作があれば駆動回帰。修正せず報告して停止」
+  に該当するため、ここで停止する。
+  - 駆動系の修正: 未実施(指示による)
+  - 20分再検証: 未実施(駆動回帰未解消のため無意味であり、停止指示が優先)
+  - git push: 未実施(合格時のみの条件を満たさない)
+  - ローカル commit: 26a3faa (velocity_decay) のみ本タスクで追加。
+    d2ba66b / b9b4b25 は前タスク分。
+
+【git 現状】
+  branch: amr-workspace
+  26a3faa fix: add velocity_decay to paper_trash links (perpetual-roll ...)
+  d2ba66b fix: retry-loop indent, collection-break scope, gate alignment ...
+  b9b4b25 refactor: teleport-based pick (sim-only), remove DetachableJoint
+
+生ログ: セッションスクラッチパッド内 diag_tf.log / frames.pdf(TFツリー) /
+tfinfo.txt(/tf パブリッシャ) / diag_drive.log / openloop_results.txt
+================================================================================
