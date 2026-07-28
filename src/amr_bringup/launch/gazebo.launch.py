@@ -1,7 +1,7 @@
 import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess
+from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction
 from launch.substitutions import Command, LaunchConfiguration, PythonExpression
 from launch.conditions import IfCondition, UnlessCondition
 from launch_ros.actions import Node
@@ -48,58 +48,61 @@ class GazeboRosPaths:
 
         return gazebo_model_path, gazebo_plugin_path
 
-def generate_launch_description():
+def _launch_setup(context, *args, **kwargs):
     model_paths, plugin_paths = GazeboRosPaths.get_paths()
 
-    # 0. バックグラウンドで Xvfb 仮想ディスプレイ (:101) を起動 (すでに動いている場合はスキップ)
+    software_render = LaunchConfiguration('software_render').perform(context).lower() in ('true', '1')
+
+    # 0. バックグラウンドで Xvfb 仮想ディスプレイ (:101) を起動
+    # (すでに動いている場合はスキップ)。
+    # この :101 は gazebo_env['DISPLAY'] では参照されない
+    # (実際に使われるのはホストの DISPLAY、サーバー側は EGL で DISPLAY 不使用)。
+    # software_render:=true (llvmpipeフォールバック) の場合のみ、実DISPLAYが
+    # 使えない環境への保険として起動する。GPU描画(デフォルト)では不要と
+    # 実機検証済みのため起動しない。
     import subprocess
     import time
-    try:
-        # :101 ディスプレイがすでにアクティブか確認
-        subprocess.run(['xdpyinfo', '-display', ':101'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-        print("Xvfb is already running on :101")
-    except Exception:
-        print("Starting Xvfb virtual framebuffer on display :101...")
-        if os.path.exists('/tmp/.X101-lock'):
-            try:
-                os.remove('/tmp/.X101-lock')
-                print("Removed stale Xvfb lock file /tmp/.X101-lock")
-            except Exception:
-                pass
-        subprocess.Popen([
-            'Xvfb', ':101',
-            '-screen', '0', '1024x768x24',
-            '-ac',
-            '+extension', 'GLX',
-            '+render',
-            '-noreset'
-        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-        
-        # Xvfb が正常に起動して接続可能になるのを最大5秒間待つ (同期)
-        for i in range(50):
-            try:
-                res = subprocess.run(['xdpyinfo', '-display', ':101'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
-                if res.returncode == 0:
-                    print(f"Xvfb virtual display is ready on :101 after {i*0.1:.1f} seconds!")
-                    break
-            except Exception:
-                pass
-            time.sleep(0.1)
+    if software_render:
+        try:
+            # :101 ディスプレイがすでにアクティブか確認
+            subprocess.run(['xdpyinfo', '-display', ':101'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+            print("Xvfb is already running on :101")
+        except Exception:
+            print("Starting Xvfb virtual framebuffer on display :101...")
+            if os.path.exists('/tmp/.X101-lock'):
+                try:
+                    os.remove('/tmp/.X101-lock')
+                    print("Removed stale Xvfb lock file /tmp/.X101-lock")
+                except Exception:
+                    pass
+            subprocess.Popen([
+                'Xvfb', ':101',
+                '-screen', '0', '1024x768x24',
+                '-ac',
+                '+extension', 'GLX',
+                '+render',
+                '-noreset'
+            ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            # Xvfb が正常に起動して接続可能になるのを最大5秒間待つ (同期)
+            for i in range(50):
+                try:
+                    res = subprocess.run(['xdpyinfo', '-display', ':101'], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=1)
+                    if res.returncode == 0:
+                        print(f"Xvfb virtual display is ready on :101 after {i*0.1:.1f} seconds!")
+                        break
+                except Exception:
+                    pass
+                time.sleep(0.1)
 
     # 確定したグラフィックス環境変数の辞書
     gazebo_env = {
         'DISPLAY': os.environ.get('DISPLAY', ':0'),
-        '__EGL_VENDOR_LIBRARY_FILENAMES': '/usr/share/glvnd/egl_vendor.d/50_mesa.json',
-        '__GLX_VENDOR_LIBRARY_NAME': 'mesa',
-        'MESA_LOADER_DRIVER_OVERRIDE': 'llvmpipe',
-        'LIBGL_ALWAYS_SOFTWARE': '1',
         'QT_QPA_PLATFORM': 'xcb',
         'GDK_BACKEND': 'x11',
         'QT_X11_NO_MITSHM': '1',
         'GZ_RENDERING_ENGINE_SERVER_API': 'opengl',
         'OGRE_CRASH_HANDLER': '0',
-        'MESA_GL_VERSION_OVERRIDE': '4.5',
-        'MESA_GLSL_VERSION_OVERRIDE': '450',
         'GZ_SIM_SYSTEM_PLUGIN_PATH': os.pathsep.join([
             os.environ.get("GZ_SIM_SYSTEM_PLUGIN_PATH", ""),
             os.environ.get("LD_LIBRARY_PATH", ""),
@@ -111,16 +114,40 @@ def generate_launch_description():
         ])
     }
 
+    if software_render:
+        # ソフトウェアレンダリング (llvmpipe) を強制する環境変数群。
+        # GPU描画が不安定な環境向けのフォールバック。
+        # software_render:=true で従来の動作(llvmpipe固定)に戻せる。
+        gazebo_env.update({
+            '__EGL_VENDOR_LIBRARY_FILENAMES': '/usr/share/glvnd/egl_vendor.d/50_mesa.json',
+            '__GLX_VENDOR_LIBRARY_NAME': 'mesa',
+            'MESA_LOADER_DRIVER_OVERRIDE': 'llvmpipe',
+            'LIBGL_ALWAYS_SOFTWARE': '1',
+            'MESA_GL_VERSION_OVERRIDE': '4.5',
+            'MESA_GLSL_VERSION_OVERRIDE': '450',
+        })
+    else:
+        # GPU (NVIDIA) 使用パス。この機体は Intel iGPU が物理ディスプレイを
+        # 駆動する Optimus/PRIME 構成のため、GLX クライアント (GUI) は
+        # PRIME render offload を明示しないと Intel iris に流れてしまう。
+        # EGL (ヘッドレスサーバー) 側は 10_nvidia.json が既定で優先されるため
+        # 上書き不要。
+        gazebo_env.update({
+            '__NV_PRIME_RENDER_OFFLOAD': '1',
+            '__GLX_VENDOR_LIBRARY_NAME': 'nvidia',
+        })
+
     # サーバー用環境変数：EGL によるヘッドレス Ogre2 レンダリングを実行
     gazebo_server_env = gazebo_env.copy()
     gazebo_server_env['GZ_RENDERING_ENGINE_SERVER_API'] = 'egl'  # GLX ではなく EGL
     if 'DISPLAY' in gazebo_server_env:
         del gazebo_server_env['DISPLAY']
     gazebo_server_env['GZ_SIM_HEADLESS_RENDERING'] = '1'  # ヘッドレスレンダリングを有効化
-    
-    # 安全のため LD_PRELOAD による GPU 隠蔽を有効化してセグフォを防止し、Mesa EGL ソフトウェア (llvmpipe) へ安全にフォールバックさせる
-    pkg_amr_bringup_temp = get_package_share_directory('amr_bringup')
-    gazebo_server_env['LD_PRELOAD'] = os.path.join(pkg_amr_bringup_temp, 'launch', 'libhide_gpu.so')
+
+    if software_render:
+        # 安全のため LD_PRELOAD による GPU 隠蔽を有効化してセグフォを防止し、Mesa EGL ソフトウェア (llvmpipe) へ安全にフォールバックさせる
+        pkg_amr_bringup_temp = get_package_share_directory('amr_bringup')
+        gazebo_server_env['LD_PRELOAD'] = os.path.join(pkg_amr_bringup_temp, 'launch', 'libhide_gpu.so')
 
     # GUI用環境変数
     gazebo_gui_env = gazebo_env.copy()
@@ -132,13 +159,6 @@ def generate_launch_description():
     # Xacroファイルとワールドファイルのパスを設定
     xacro_file = os.path.join(pkg_amr_description, 'urdf', 'amr_robot.urdf.xacro')
     world_file = os.path.join(pkg_amr_bringup, 'worlds', 'office_room.sdf')
-
-    # ヘッドレスモード (Server only) 切り替え引数の定義
-    headless_arg = DeclareLaunchArgument(
-        'headless',
-        default_value='false',
-        description='Whether to run Gazebo in headless (server-only) mode'
-    )
 
     # 1. 空のGazebo世界の起動 (ExecuteProcess により環境変数を100%確実に密輸 & shell=Falseに修正)
     # Gazebo サーバーの起動（常にヘッドレスサーバーを起動）
@@ -305,8 +325,7 @@ def generate_launch_description():
         output='screen'
     )
 
-    return LaunchDescription([
-        headless_arg,
+    return [
         gazebo_server,
         gazebo_gui,
         robot_state_publisher_node,
@@ -319,6 +338,27 @@ def generate_launch_description():
         ekf_node,
         world_to_map_tf_publisher,
         lidar_filter_node
+    ]
+
+
+def generate_launch_description():
+    headless_arg = DeclareLaunchArgument(
+        'headless',
+        default_value='false',
+        description='Whether to run Gazebo in headless (server-only) mode'
+    )
+    software_render_arg = DeclareLaunchArgument(
+        'software_render',
+        default_value='false',
+        description=(
+            'true: force llvmpipe software rendering (legacy fallback). '
+            'false (default): let GLX/EGL pick the GPU (NVIDIA) driver normally.'
+        )
+    )
+    return LaunchDescription([
+        headless_arg,
+        software_render_arg,
+        OpaqueFunction(function=_launch_setup)
     ])
 
 
