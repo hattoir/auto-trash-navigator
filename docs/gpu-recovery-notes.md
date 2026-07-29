@@ -109,9 +109,77 @@ GPU経路のデフォルトとして採用し commit した。ただし段階5�
 
 「/camera/image_raw が常に無彩色になる」問題は、GPUレンダリング復元
 (本タスクの主題)とは独立した別バグであり、今回は原因未特定のまま
-報告に留める。次の一手としては:
-- office_room.sdf の他の物体(壁・床・障害物)も含めて彩度を確認し、
-  シーン全体が無彩色かを切り分ける
-- gz-sim の rgbd_camera センサプラグインのソース/既知バグを調査する
-- 材質定義に `<pbr>` ブロックを追加した場合に色が出るか試す
-などが考えられるが、いずれも本タスク(GPU描画復元)のスコープを超える。
+報告に留める。
+
+### 追加調査(最大2ステップ、2026-07-29実施)
+
+**ステップ1: GUIとセンサーの比較(決定実験)**
+
+GPU描画有効(`software_render:=false`、`ogre2`)の状態で
+`ros2 launch amr_bringup gazebo.launch.py headless:=false` を起動し、
+視覚のみの赤球(ambient/diffuse=(1,0,0,1))をワールド中央にspawnして
+比較した。
+
+- Gazebo GUI(`/gui/screenshot` サービスで取得):
+  球は赤色、背景の障害物ボックス(ピンク・黄色)も正しい色で表示。
+  → [docs/evidence/gui_screenshot_red_ball.png](evidence/gui_screenshot_red_ball.png)
+- 同時刻の `/camera/image_raw`(ロボット搭載カメラ):
+  最大彩度 0.00%、全ピクセル R=G=B(平均0.71程度)の完全グレー。
+  → [docs/evidence/sensor_frame_gray.png](evidence/sensor_frame_gray.png)
+
+**結果: GUI=赤 / センサー=グレー → 判定は「センサーのレンダーパス側の
+問題」(ステップ2A)。** マテリアル定義・SDF解析自体は正常(GUIが正しく
+色を再現できている以上、シーン層・マテリアル層は無罪)。
+
+**ステップ2A: センサーパス側の調査**
+
+1. `src/amr_description/urdf/amr_robot.urdf.xacro` の
+   `gz::sim::systems::Sensors` プラグイン設定を確認したところ、
+   `<render_engine>ogre2</render_engine>` が明示的に指定されていた
+   (CLI引数 `--render-engine-server`/`--render-engine-gui` とは独立した、
+   センサー専用のレンダーエンジン指定)。ソフトウェアレンダリング経路
+   (`software_render:=true`、CLI側はogre1)でもこのタグは変更していない
+   ため、その経路では実質「メインシーン=ogre1 / センサー=ogre2」という
+   不一致な組み合わせで動いていたことになる。GPU経路(ogre2/ogre2で一致)
+   でもグレーが再現したため、エンジンの不一致だけが原因ではない。
+
+2. URDFのカメラセンサー定義(`<camera><image><format>R8G8B8</format>`)
+   は正しいことを既存の調査で確認済み(本ドキュメント冒頭の記録より)。
+
+3. `libgz-sim8-sensors-system.so.8.11.0`(vendorビルドのバイナリのみで
+   ソース非公開)のシンボルを `strings` で確認したところ、以下を発見:
+   - `gz::sim::v8::components::Component<bool, RenderEngineServerHeadlessTag, ...>`
+     というECSコンポーネントが存在する
+   - `gz::sim::v8::RenderUtil::SetHeadlessRendering(bool const&)` という
+     メソッドが存在する
+   - これらは、サーバー側(`--headless-rendering` 指定時)のレンダリングが
+     GUIプロセスの対話的レンダリングとは明確に区別された、専用の
+     "ヘッドレス"状態フラグ・コードパスを持つことを示す
+   - `background_color` / `ambient_light` / `global_illumination` という
+     文字列も同バイナリ内に存在するが、これらはGUIプラグインのSDF
+     パラメータ名の並びに近く、Sensorsシステム自体の設定項目である
+     確証は得られなかった
+   - grayscale/monochrome/luminance等を示唆するシンボルは見つからず、
+     色変換ロジックの直接的証拠は得られなかった
+
+   → **公式ドキュメント/ソースでの確証までは至らなかった**(ROS
+   jazzy用vendorパッケージはヘッダ+バイナリのみでgz-sim本体のソースを
+   含まず、CHANGELOGの類も同梱されていない)。ただし、GUI(別プロセスの
+   独立したOgre2インスタンス)とサーバー内蔵のSensorsシステム(これも
+   Ogre2だが `--headless-rendering` 経由の別のレンダリングコンテキスト)
+   が完全に別の描画パスであることはアーキテクチャ上確実であり、
+   「ヘッドレス専用コードパスが何らかの理由で色情報を落としている」
+   という仮説は、今回得られた状況証拠(GUI=正常、ヘッドレスセンサー=
+   グレー、ヘッドレス専用ECSコンポーネントの存在)と矛盾しない。
+
+**打ち切り(2ステップ上限に到達)。次に調べるべき候補:**
+- `--headless-rendering` を外した非ヘッドレス構成(server/guiを分離せず
+  単一プロセスで `gz sim -r` のみ起動)でセンサー画像に色が出るか比較する
+  (ヘッドレス専用コードパス仮説の直接検証)
+- gz-sim本体(vendorでなく公式リポジトリ)のソースで
+  `RenderUtil::SetHeadlessRendering` 呼び出し箇所と、rgbd_cameraセンサーの
+  ヘッドレス時のシーン共有処理を確認する
+- `--render-engine-server-api-backend` (opengl/vulkan等)の違いが
+  センサー側にのみ影響していないか確認する
+- gz-simのGitHub Issueで "headless" "camera" "gray"/"grayscale" 等の
+  既知不具合を検索する(本セッションはネット非接続のため未実施)
