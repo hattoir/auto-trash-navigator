@@ -1,108 +1,120 @@
 <?xml version="1.0"?>
+<!--
+  SO-101 グリッパー — Fusion 360 実測値版 (2026-07-28)
+
+  機構: ラック&ピニオン 平行開閉 (モジュール2.0 / 12歯 / ピッチ半径 12.0mm)
+        2本のラックはピニオンを挟んで Y 方向に ±10.7mm オフセットし、
+        X 方向へ逆向きに動く。
+
+  位置 (J6原点からの +Z、CAD絶対Zから換算):
+    ピニオン軸ホーン座面 (grip基部) : 0.0534 m
+    把持面 下端                      : 0.0616 m  → gripper_base から 0.0082
+    把持面 中心 (把持点)             : 0.0741 m  → gripper_base から 0.0207
+    指先端 (TCP)                     : 0.0865 m  → gripper_base から 0.0331
+
+  開口: travel=0 が機構の中央で 34.0mm (把持面 x = ±17.0mm)
+        opening[mm] = 34 + 24 * theta[rad] (theta はサーボ角)
+        噛み合いを1ピッチ以上残す条件で片側 ±13mm → 開口 8mm 〜 60mm
+        よって prismatic の可動域は -0.013 〜 +0.013 m (0 = 中央 34mm)
+
+  力/速度: ラック推力 = トルク / ピッチ半径 = 0.6 N·m / 0.012 m = 50 N (実用値)
+           ラック速度 = 2.2 rad/s * 0.012 m = 0.026 m/s (実用値)
+
+  指: 把持面 23.4(Y) x 24.9(Z) mm、ポスト厚 6.0mm、1本 6.1 g
+-->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:macro name="so101_gripper">
-    <!-- Gripper Base Joint -->
+
+    <!-- ===== グリッパー基部 (ピニオン軸ホーン座面) ===== -->
     <joint name="gripper_base_joint" type="fixed">
       <parent link="link6"/>
       <child link="gripper_base_link"/>
-      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <origin xyz="0 0 0.0534" rpy="0 0 0"/>
     </joint>
 
-    <!-- Gripper Base Link -->
     <link name="gripper_base_link">
       <visual>
-        <origin xyz="0 0 0.015" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.04 0.06 0.03"/>
-        </geometry>
+        <origin xyz="0 0 0.008" rpy="0 0 0"/>
+        <geometry><box size="0.050 0.030 0.016"/></geometry>
         <material name="blue"/>
       </visual>
       <collision>
-        <origin xyz="0 0 0.015" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.04 0.06 0.03"/>
-        </geometry>
+        <origin xyz="0 0 0.008" rpy="0 0 0"/>
+        <geometry><box size="0.050 0.030 0.016"/></geometry>
       </collision>
       <inertial>
-        <origin xyz="0 0 0.015" rpy="0 0 0"/>
-        <mass value="0.3"/>
-        <inertia ixx="${(1/12) * 0.3 * (0.06*0.06 + 0.03*0.03)}" ixy="0.0" ixz="0.0"
-                 iyy="${(1/12) * 0.3 * (0.04*0.04 + 0.03*0.03)}" iyz="0.0"
-                 izz="${(1/12) * 0.3 * (0.04*0.04 + 0.06*0.06)}"/>
+        <origin xyz="0 0 0.008" rpy="0 0 0"/>
+        <mass value="0.030"/>
+        <inertia ixx="${(1/12) * 0.030 * (0.030*0.030 + 0.016*0.016)}" ixy="0.0" ixz="0.0"
+                 iyy="${(1/12) * 0.030 * (0.050*0.050 + 0.016*0.016)}" iyz="0.0"
+                 izz="${(1/12) * 0.030 * (0.050*0.050 + 0.030*0.030)}"/>
       </inertial>
     </link>
 
-    <!-- Left Finger Joint -->
+    <!-- ===== 左指 (X負側のラック、Y +10.7mm 側) =====
+         joint 値 0 = 把持面 x = -0.017 (開口34mm)
+         正方向 = 開く (-X へ移動) -->
     <joint name="left_finger_joint" type="prismatic">
       <parent link="gripper_base_link"/>
       <child link="left_finger_link"/>
-      <origin xyz="0 0.02 0.025" rpy="0 0 0"/>
-      <axis xyz="0 -1 0"/>
-      <limit lower="0.0" upper="0.015" effort="10.0" velocity="0.1"/>
+      <origin xyz="-0.020 0.0107 0" rpy="0 0 0"/>
+      <axis xyz="-1 0 0"/>
+      <limit lower="-0.013" upper="0.013" effort="50.0" velocity="0.026"/>
+      <dynamics damping="5.0" friction="1.0"/>
     </joint>
 
-    <!-- Left Finger Link -->
     <link name="left_finger_link">
       <visual>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.03 0.01 0.04"/>
-        </geometry>
+        <origin xyz="0 0 0.0207" rpy="0 0 0"/>
+        <geometry><box size="0.006 0.0234 0.0249"/></geometry>
         <material name="silver"/>
       </visual>
       <collision>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.03 0.01 0.04"/>
-        </geometry>
+        <origin xyz="0 0 0.0207" rpy="0 0 0"/>
+        <geometry><box size="0.006 0.0234 0.0249"/></geometry>
       </collision>
       <inertial>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <mass value="0.05"/>
-        <inertia ixx="${(1/12) * 0.05 * (0.01*0.01 + 0.04*0.04)}" ixy="0.0" ixz="0.0"
-                 iyy="${(1/12) * 0.05 * (0.03*0.03 + 0.04*0.04)}" iyz="0.0"
-                 izz="${(1/12) * 0.05 * (0.03*0.03 + 0.01*0.01)}"/>
+        <origin xyz="0.0089 0 0.0152" rpy="0 0 0"/>
+        <mass value="0.0061"/>
+        <inertia ixx="${(1/12) * 0.0061 * (0.0234*0.0234 + 0.0249*0.0249)}" ixy="0.0" ixz="0.0"
+                 iyy="${(1/12) * 0.0061 * (0.006*0.006 + 0.0249*0.0249)}" iyz="0.0"
+                 izz="${(1/12) * 0.0061 * (0.006*0.006 + 0.0234*0.0234)}"/>
       </inertial>
     </link>
 
-    <!-- Right Finger Joint -->
+    <!-- ===== 右指 (X正側のラック、Y -10.7mm 側) ===== -->
     <joint name="right_finger_joint" type="prismatic">
       <parent link="gripper_base_link"/>
       <child link="right_finger_link"/>
-      <origin xyz="0 -0.02 0.025" rpy="0 0 0"/>
-      <axis xyz="0 1 0"/>
-      <limit lower="0.0" upper="0.015" effort="10.0" velocity="0.1"/>
+      <origin xyz="0.020 -0.0107 0" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-0.013" upper="0.013" effort="50.0" velocity="0.026"/>
+      <dynamics damping="5.0" friction="1.0"/>
+      <mimic joint="left_finger_joint" multiplier="1.0" offset="0.0"/>
     </joint>
 
-    <!-- Right Finger Link -->
     <link name="right_finger_link">
       <visual>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.03 0.01 0.04"/>
-        </geometry>
+        <origin xyz="0 0 0.0207" rpy="0 0 0"/>
+        <geometry><box size="0.006 0.0234 0.0249"/></geometry>
         <material name="silver"/>
       </visual>
       <collision>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.03 0.01 0.04"/>
-        </geometry>
+        <origin xyz="0 0 0.0207" rpy="0 0 0"/>
+        <geometry><box size="0.006 0.0234 0.0249"/></geometry>
       </collision>
       <inertial>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <mass value="0.05"/>
-        <inertia ixx="${(1/12) * 0.05 * (0.01*0.01 + 0.04*0.04)}" ixy="0.0" ixz="0.0"
-                 iyy="${(1/12) * 0.05 * (0.03*0.03 + 0.04*0.04)}" iyz="0.0"
-                 izz="${(1/12) * 0.05 * (0.03*0.03 + 0.01*0.01)}"/>
+        <origin xyz="-0.0089 0 0.0152" rpy="0 0 0"/>
+        <mass value="0.0061"/>
+        <inertia ixx="${(1/12) * 0.0061 * (0.0234*0.0234 + 0.0249*0.0249)}" ixy="0.0" ixz="0.0"
+                 iyy="${(1/12) * 0.0061 * (0.006*0.006 + 0.0249*0.0249)}" iyz="0.0"
+                 izz="${(1/12) * 0.0061 * (0.006*0.006 + 0.0234*0.0234)}"/>
       </inertial>
     </link>
 
-    <!-- Self collision settings for gripper -->
-    <gazebo reference="gripper_base_link">
-      <self_collision>false</self_collision>
-    </gazebo>
+    <gazebo reference="gripper_base_link"><self_collision>false</self_collision></gazebo>
+
   </xacro:macro>
 
 </robot>

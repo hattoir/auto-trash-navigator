@@ -1,245 +1,245 @@
 <?xml version="1.0"?>
+<!--
+  SO-101 6軸アーム — Fusion 360 実測値版 (2026-07-28)
+
+  リンク長: 全て前ジョイントからの +Z オフセット (CAD実測、単位 m)
+    j1 0.04350 / j2 0.06445 / j3 0.10000 / j4 0.09755 / j5 0.04245 / j6 0.06855
+    grasp(把持点) 0.07410 / tcp(指先) 0.08650   ※ベース底面からの全高 0.503 m
+  回転軸: Z-X-X-Z-X-Z (j2 を正に回すとアームは +Y 方向へ倒れる / 右ねじ)
+  可動域: サーボ+ホーン+ネジ込みの実測限界から安全側に設定
+  質量・重心: PLA 1.24 g/cm3 + STS3215 55g/個 で算出した CAD 実測値
+  effort/velocity: STS3215 のストール 1.9 N·m / 無負荷 4.4 rad/s に対する実用値
+  慣性テンソル: リンク外形の円柱/直方体近似 (実測質量・重心を使用)
+
+  注意: ゼロ姿勢 = 全関節 0 = 6軸すべてZ軸上に一直線 (真上)。
+        実機組立後に各サーボへ Set Middle Position を打ち、機械ゼロ=2048=0rad を保証すること。
+-->
 <robot xmlns:xacro="http://www.ros.org/wiki/xacro">
 
   <xacro:macro name="so101_arm">
-    <!-- Joint 1 -->
+
+    <!-- ===== Joint 1 : ベース旋回 (Z) ===== -->
     <joint name="joint1" type="revolute">
       <parent link="arm_base_link"/>
       <child link="link1"/>
-      <origin xyz="0 0 0.02" rpy="0 0 0"/>
+      <origin xyz="0 0 0.04350" rpy="0 0 0"/>
       <axis xyz="0 0 1"/>
-      <limit lower="-2.0" upper="2.0" effort="10.0" velocity="2.0"/>
-      <dynamics damping="10.0" friction="5.0"/>
+      <limit lower="-3.05" upper="3.05" effort="0.6" velocity="2.2"/>
+      <dynamics damping="0.5" friction="0.2"/>
     </joint>
 
-    <!-- Link 1 -->
     <link name="link1">
       <visual>
-        <origin xyz="0 0 0.025" rpy="0 0 0"/>
-        <geometry>
-          <cylinder radius="0.03" length="0.05"/>
-        </geometry>
+        <origin xyz="0 0 0.03223" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.030" length="0.06445"/></geometry>
         <material name="silver"/>
       </visual>
       <collision>
-        <origin xyz="0 0 0.025" rpy="0 0 0"/>
-        <geometry>
-          <cylinder radius="0.03" length="0.05"/>
-        </geometry>
+        <origin xyz="0 0 0.03223" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.030" length="0.06445"/></geometry>
       </collision>
       <inertial>
-        <origin xyz="0 0 0.025" rpy="0 0 0"/>
-        <mass value="0.2"/>
-        <inertia ixx="${(1/12) * 0.2 * (3*0.03*0.03 + 0.05*0.05)}" ixy="0.0" ixz="0.0"
-                 iyy="${(1/12) * 0.2 * (3*0.03*0.03 + 0.05*0.05)}" iyz="0.0"
-                 izz="${0.5 * 0.2 * 0.03 * 0.03}"/>
+        <origin xyz="-0.0006 0 0.0339" rpy="0 0 0"/>
+        <mass value="0.1476"/>
+        <inertia ixx="${(1/12) * 0.1476 * (3*0.030*0.030 + 0.06445*0.06445)}" ixy="0.0" ixz="0.0"
+                 iyy="${(1/12) * 0.1476 * (3*0.030*0.030 + 0.06445*0.06445)}" iyz="0.0"
+                 izz="${0.5 * 0.1476 * 0.030 * 0.030}"/>
       </inertial>
     </link>
 
-    <!-- Joint 2 -->
+    <!-- ===== Joint 2 : 肩ピッチ (X) ===== -->
     <joint name="joint2" type="revolute">
       <parent link="link1"/>
       <child link="link2"/>
-      <origin xyz="0 0 0.05" rpy="0 0 0"/>
-      <axis xyz="0 1 0"/>
-      <limit lower="-2.0" upper="2.0" effort="10.0" velocity="2.0"/>
-      <dynamics damping="30.0" friction="25.0"/>
+      <origin xyz="0 0 0.06445" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-1.65" upper="1.65" effort="0.6" velocity="2.2"/>
+      <dynamics damping="1.0" friction="0.4"/>
     </joint>
 
-    <!-- Link 2 -->
     <link name="link2">
       <visual>
-        <origin xyz="0 0 0.075" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.04 0.04 0.15"/>
-        </geometry>
+        <origin xyz="0 0 0.05" rpy="0 0 0"/>
+        <geometry><box size="0.036 0.032 0.100"/></geometry>
         <material name="blue"/>
       </visual>
       <collision>
-        <origin xyz="0 0 0.075" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.04 0.04 0.15"/>
-        </geometry>
+        <origin xyz="0 0 0.05" rpy="0 0 0"/>
+        <geometry><box size="0.036 0.032 0.100"/></geometry>
       </collision>
       <inertial>
-        <origin xyz="0 0 0.075" rpy="0 0 0"/>
-        <mass value="0.4"/>
-        <inertia ixx="${(1/12) * 0.4 * (0.04*0.04 + 0.15*0.15)}" ixy="0.0" ixz="0.0"
-                 iyy="${(1/12) * 0.4 * (0.04*0.04 + 0.15*0.15)}" iyz="0.0"
-                 izz="${(1/12) * 0.4 * (0.04*0.04 + 0.04*0.04)}"/>
+        <origin xyz="-0.0010 0 0.0666" rpy="0 0 0"/>
+        <mass value="0.1232"/>
+        <inertia ixx="${(1/12) * 0.1232 * (0.032*0.032 + 0.100*0.100)}" ixy="0.0" ixz="0.0"
+                 iyy="${(1/12) * 0.1232 * (0.036*0.036 + 0.100*0.100)}" iyz="0.0"
+                 izz="${(1/12) * 0.1232 * (0.036*0.036 + 0.032*0.032)}"/>
       </inertial>
     </link>
 
-    <!-- Joint 3 -->
+    <!-- ===== Joint 3 : 肘ピッチ (X) ===== -->
     <joint name="joint3" type="revolute">
       <parent link="link2"/>
       <child link="link3"/>
-      <origin xyz="0 0 0.15" rpy="0 0 0"/>
-      <axis xyz="0 1 0"/>
-      <limit lower="-2.0" upper="2.0" effort="10.0" velocity="2.0"/>
-      <dynamics damping="20.0" friction="15.0"/>
+      <origin xyz="0 0 0.10000" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-1.66" upper="1.66" effort="0.6" velocity="2.2"/>
+      <dynamics damping="0.8" friction="0.3"/>
     </joint>
 
-    <!-- Link 3 -->
     <link name="link3">
       <visual>
-        <origin xyz="0 0 0.075" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.03 0.03 0.15"/>
-        </geometry>
+        <origin xyz="0 0 0.04878" rpy="0 0 0"/>
+        <geometry><box size="0.032 0.028 0.09755"/></geometry>
         <material name="silver"/>
       </visual>
       <collision>
-        <origin xyz="0 0 0.075" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.03 0.03 0.15"/>
-        </geometry>
+        <origin xyz="0 0 0.04878" rpy="0 0 0"/>
+        <geometry><box size="0.032 0.028 0.09755"/></geometry>
       </collision>
       <inertial>
-        <origin xyz="0 0 0.075" rpy="0 0 0"/>
-        <mass value="0.3"/>
-        <inertia ixx="${(1/12) * 0.3 * (0.03*0.03 + 0.15*0.15)}" ixy="0.0" ixz="0.0"
-                 iyy="${(1/12) * 0.3 * (0.03*0.03 + 0.15*0.15)}" iyz="0.0"
-                 izz="${(1/12) * 0.3 * (0.03*0.03 + 0.03*0.03)}"/>
+        <origin xyz="0.0017 0 0.0592" rpy="0 0 0"/>
+        <mass value="0.1197"/>
+        <inertia ixx="${(1/12) * 0.1197 * (0.028*0.028 + 0.09755*0.09755)}" ixy="0.0" ixz="0.0"
+                 iyy="${(1/12) * 0.1197 * (0.032*0.032 + 0.09755*0.09755)}" iyz="0.0"
+                 izz="${(1/12) * 0.1197 * (0.032*0.032 + 0.028*0.028)}"/>
       </inertial>
     </link>
 
-    <!-- Joint 4 -->
+    <!-- ===== Joint 4 : 前腕ロール (Z) ===== -->
     <joint name="joint4" type="revolute">
       <parent link="link3"/>
       <child link="link4"/>
-      <origin xyz="0 0 0.15" rpy="0 0 0"/>
+      <origin xyz="0 0 0.09755" rpy="0 0 0"/>
       <axis xyz="0 0 1"/>
-      <limit lower="-2.0" upper="2.0" effort="10.0" velocity="2.0"/>
-      <dynamics damping="10.0" friction="5.0"/>
+      <limit lower="-3.05" upper="3.05" effort="0.6" velocity="2.2"/>
+      <dynamics damping="0.4" friction="0.15"/>
     </joint>
 
-    <!-- Link 4 -->
     <link name="link4">
       <visual>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <geometry>
-          <cylinder radius="0.02" length="0.04"/>
-        </geometry>
+        <origin xyz="0 0 0.02123" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.022" length="0.04245"/></geometry>
         <material name="blue"/>
       </visual>
       <collision>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <geometry>
-          <cylinder radius="0.02" length="0.04"/>
-        </geometry>
+        <origin xyz="0 0 0.02123" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.022" length="0.04245"/></geometry>
       </collision>
       <inertial>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <mass value="0.15"/>
-        <inertia ixx="${(1/12) * 0.15 * (3*0.02*0.02 + 0.04*0.04)}" ixy="0.0" ixz="0.0"
-                 iyy="${(1/12) * 0.15 * (3*0.02*0.02 + 0.04*0.04)}" iyz="0.0"
-                 izz="${0.5 * 0.15 * 0.02 * 0.02}"/>
+        <origin xyz="-0.0011 0 0.0283" rpy="0 0 0"/>
+        <mass value="0.0811"/>
+        <inertia ixx="${(1/12) * 0.0811 * (3*0.022*0.022 + 0.04245*0.04245)}" ixy="0.0" ixz="0.0"
+                 iyy="${(1/12) * 0.0811 * (3*0.022*0.022 + 0.04245*0.04245)}" iyz="0.0"
+                 izz="${0.5 * 0.0811 * 0.022 * 0.022}"/>
       </inertial>
     </link>
 
-    <!-- Joint 5 -->
+    <!-- ===== Joint 5 : 手首ピッチ (X) ===== -->
     <joint name="joint5" type="revolute">
       <parent link="link4"/>
       <child link="link5"/>
-      <origin xyz="0 0 0.04" rpy="0 0 0"/>
-      <axis xyz="0 1 0"/>
-      <limit lower="-2.0" upper="2.0" effort="10.0" velocity="2.0"/>
-      <dynamics damping="20.0" friction="15.0"/>
+      <origin xyz="0 0 0.04245" rpy="0 0 0"/>
+      <axis xyz="1 0 0"/>
+      <limit lower="-1.66" upper="1.66" effort="0.6" velocity="2.2"/>
+      <dynamics damping="0.5" friction="0.2"/>
     </joint>
 
-    <!-- Link 5 -->
     <link name="link5">
       <visual>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.03 0.04 0.04"/>
-        </geometry>
+        <origin xyz="0 0 0.03428" rpy="0 0 0"/>
+        <geometry><box size="0.030 0.036 0.06855"/></geometry>
         <material name="silver"/>
       </visual>
       <collision>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.03 0.04 0.04"/>
-        </geometry>
+        <origin xyz="0 0 0.03428" rpy="0 0 0"/>
+        <geometry><box size="0.030 0.036 0.06855"/></geometry>
       </collision>
       <inertial>
-        <origin xyz="0 0 0.02" rpy="0 0 0"/>
-        <mass value="0.15"/>
-        <inertia ixx="${(1/12) * 0.15 * (0.04*0.04 + 0.04*0.04)}" ixy="0.0" ixz="0.0"
-                 iyy="${(1/12) * 0.15 * (0.03*0.03 + 0.04*0.04)}" iyz="0.0"
-                 izz="${(1/12) * 0.15 * (0.03*0.03 + 0.04*0.04)}"/>
+        <origin xyz="0.0021 0 0.0394" rpy="0 0 0"/>
+        <mass value="0.0982"/>
+        <inertia ixx="${(1/12) * 0.0982 * (0.036*0.036 + 0.06855*0.06855)}" ixy="0.0" ixz="0.0"
+                 iyy="${(1/12) * 0.0982 * (0.030*0.030 + 0.06855*0.06855)}" iyz="0.0"
+                 izz="${(1/12) * 0.0982 * (0.030*0.030 + 0.036*0.036)}"/>
       </inertial>
     </link>
 
-    <!-- Joint 6 -->
+    <!-- ===== Joint 6 : 手首ロール (Z) ===== -->
     <joint name="joint6" type="revolute">
       <parent link="link5"/>
       <child link="link6"/>
-      <origin xyz="0 0 0.04" rpy="0 0 0"/>
+      <origin xyz="0 0 0.06855" rpy="0 0 0"/>
       <axis xyz="0 0 1"/>
-      <limit lower="-2.0" upper="2.0" effort="10.0" velocity="2.0"/>
-      <dynamics damping="10.0" friction="5.0"/>
+      <limit lower="-3.05" upper="3.05" effort="0.6" velocity="2.2"/>
+      <dynamics damping="0.4" friction="0.15"/>
     </joint>
 
-    <!-- Link 6 -->
     <link name="link6">
       <visual>
-        <origin xyz="0 0 0.01" rpy="0 0 0"/>
-        <geometry>
-          <cylinder radius="0.02" length="0.02"/>
-        </geometry>
+        <origin xyz="0 0 0.0267" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.022" length="0.0534"/></geometry>
         <material name="blue"/>
       </visual>
       <collision>
-        <origin xyz="0 0 0.01" rpy="0 0 0"/>
-        <geometry>
-          <cylinder radius="0.02" length="0.02"/>
-        </geometry>
+        <origin xyz="0 0 0.0267" rpy="0 0 0"/>
+        <geometry><cylinder radius="0.022" length="0.0534"/></geometry>
       </collision>
       <inertial>
-        <origin xyz="0 0 0.01" rpy="0 0 0"/>
-        <mass value="0.15"/>
-        <inertia ixx="${(1/12) * 0.15 * (3*0.02*0.02 + 0.02*0.02)}" ixy="0.0" ixz="0.0"
-                 iyy="${(1/12) * 0.15 * (3*0.02*0.02 + 0.02*0.02)}" iyz="0.0"
-                 izz="${0.5 * 0.15 * 0.02 * 0.02}"/>
+        <origin xyz="0 0.0120 0.0368" rpy="0 0 0"/>
+        <mass value="0.1335"/>
+        <inertia ixx="${(1/12) * 0.1335 * (3*0.022*0.022 + 0.0534*0.0534)}" ixy="0.0" ixz="0.0"
+                 iyy="${(1/12) * 0.1335 * (3*0.022*0.022 + 0.0534*0.0534)}" iyz="0.0"
+                 izz="${0.5 * 0.1335 * 0.022 * 0.022}"/>
       </inertial>
     </link>
 
-    <!-- Wrist Camera Joint -->
+    <!-- ===== 手首カメラ (ELP基板) =====
+         CAD実測: J6 から (0, +0.03745, +0.0804) m。基板が YZ 平面に立っており
+         光軸は -Y (真横) を向く。ハンドアイとして使う場合は下記 rpy を
+         見直すこと (把持点は +Z 側・カメラより手前にある)。 -->
     <joint name="wrist_camera_joint" type="fixed">
       <parent link="link6"/>
       <child link="wrist_camera_link"/>
-      <origin xyz="0 0.02 0.02" rpy="0 0 0"/>
+      <origin xyz="0 0.03745 0.0804" rpy="0 0 0"/>
     </joint>
 
-    <!-- Wrist Camera Link -->
     <link name="wrist_camera_link">
       <visual>
         <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.01 0.02 0.01"/>
-        </geometry>
+        <geometry><box size="0.024 0.004 0.024"/></geometry>
         <material name="black"/>
       </visual>
-      <collision>
-        <origin xyz="0 0 0" rpy="0 0 0"/>
-        <geometry>
-          <box size="0.01 0.02 0.01"/>
-        </geometry>
-      </collision>
     </link>
 
-    <!-- Self collision settings for arm links -->
-    <gazebo reference="link1">
-      <self_collision>false</self_collision>
-    </gazebo>
-    <gazebo reference="link2">
-      <self_collision>false</self_collision>
-    </gazebo>
-    <gazebo reference="link3">
-      <self_collision>false</self_collision>
-    </gazebo>
+    <!-- 光学規約フレーム (Z前方・X右・Y下)。現状の光軸 -Y に対応 -->
+    <joint name="wrist_camera_optical_joint" type="fixed">
+      <parent link="wrist_camera_link"/>
+      <child link="wrist_camera_optical_link"/>
+      <origin xyz="0 0 0" rpy="1.5707963 0 0"/>
+    </joint>
+    <link name="wrist_camera_optical_link"/>
+
+    <!-- ===== 把持点 / 指先 (IKの目標に使う) =====
+         grasp_link  : 把持面の中心 (J6 から +0.07410) ← MoveIt の目標はここ
+         tcp_link    : 指先端        (J6 から +0.08650) -->
+    <joint name="grasp_joint" type="fixed">
+      <parent link="link6"/>
+      <child link="grasp_link"/>
+      <origin xyz="0 0 0.07410" rpy="0 0 0"/>
+    </joint>
+    <link name="grasp_link"/>
+
+    <joint name="tcp_joint" type="fixed">
+      <parent link="link6"/>
+      <child link="tcp_link"/>
+      <origin xyz="0 0 0.08650" rpy="0 0 0"/>
+    </joint>
+    <link name="tcp_link"/>
+
+    <!-- 自己干渉設定 -->
+    <gazebo reference="link1"><self_collision>false</self_collision></gazebo>
+    <gazebo reference="link2"><self_collision>false</self_collision></gazebo>
+    <gazebo reference="link3"><self_collision>false</self_collision></gazebo>
+
   </xacro:macro>
 
 </robot>
