@@ -53,32 +53,34 @@ class ReachabilityMapper(Node):
         pose.pose.position.z = float(z)
         
         if cond_type == 1:
-            # Gripper pointing straight down (rotation of pi around Y axis)
+            # Gripper pointing straight down (pitch=90deg from Z+, rotation of pi around Y axis)
             pose.pose.orientation.x = 0.0
             pose.pose.orientation.y = 1.0
             pose.pose.orientation.z = 0.0
             pose.pose.orientation.w = 0.0
-        elif cond_type == 2:
-            # Gripper pointing angled down (pitch=45deg (135deg from Z+), yaw pointing to target)
+        elif cond_type in (2, 3):
+            # Gripper angled down, yaw pointing to target.
+            # cond_type 2: pitch=60deg from horizontal (150deg from Z+)
+            # cond_type 3: pitch=45deg from horizontal (135deg from Z+)
             yaw = math.atan2(float(y), float(x))
-            pitch = 135.0 * math.pi / 180.0
-            
+            pitch = (150.0 if cond_type == 2 else 135.0) * math.pi / 180.0
+
             cy = math.cos(yaw * 0.5)
             sy = math.sin(yaw * 0.5)
             cp = math.cos(pitch * 0.5)
             sp = math.sin(pitch * 0.5)
-            
+
             pose.pose.orientation.x = -sp * sy
             pose.pose.orientation.y = sp * cy
             pose.pose.orientation.z = cp * sy
             pose.pose.orientation.w = cp * cy
-        elif cond_type == 3:
+        elif cond_type == 4:
             # Position only IK (orientation is ignored, but we pass down orientation as seed/target)
             pose.pose.orientation.x = 0.0
             pose.pose.orientation.y = 1.0
             pose.pose.orientation.z = 0.0
             pose.pose.orientation.w = 0.0
-            
+
         req.ik_request.pose_stamped = pose
         req.ik_request.timeout = Duration(sec=0, nanosec=100000000) # 0.1s
         
@@ -110,8 +112,9 @@ def main():
         
     conditions = [
         (1, "Condition 1: Gripper Facing Down (pitch=90deg)"),
-        (2, "Condition 2: Gripper Angled Down (pitch=45deg, yaw to target)"),
-        (3, "Condition 3: Position Only (no orientation constraint)")
+        (2, "Condition 2: Gripper Angled Down (pitch=60deg, yaw to target)"),
+        (3, "Condition 3: Gripper Angled Down (pitch=45deg, yaw to target)"),
+        (4, "Condition 4: Position Only (no orientation constraint)")
     ]
     
     csv_rows = []
@@ -120,8 +123,8 @@ def main():
     for cond_val, cond_name in conditions:
         print(f"\nScanning for {cond_name}...")
         
-        # Set parameter for condition 3
-        if cond_val == 3:
+        # Set parameter for the position-only condition
+        if cond_val == 4:
             node.set_position_only_ik(True)
         else:
             node.set_position_only_ik(False)
