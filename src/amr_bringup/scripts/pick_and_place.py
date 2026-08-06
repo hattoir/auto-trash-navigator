@@ -36,6 +36,20 @@ TRASH_COORDINATES = {
 # sim専用: 実機ではアーム投下そのもので実現。
 DUSTBOX_LOCATION = (3.5, -3.5, 0.35)
 
+# グリッパー可動域 (実機CAD実測、gripper.xacro参照): -0.013〜+0.013 m
+# (0 = 中央34mm開口)。開口[mm] = 34 + 1846 * joint[m]。
+# GRIPPER_OPEN: 全開(開口60mm)。GRIPPER_CLOSED_GRASP: 紙くず(直径約24mm)を
+# 掴むための閉じ量(開口 34 - 1846*0.004 ≈ 26.6mm、対象の24mmより少し広く
+# 余裕を持たせた値)。
+GRIPPER_OPEN = 0.013
+GRIPPER_CLOSED_GRASP = -0.004
+
+# 把持姿勢のピッチ角(可達範囲実測に基づく): 90°(真下)未満の傾斜姿勢は
+# 60°が上限(45°はJ2可動域±1.65radを超えるため物理的に到達不可)。
+# ここでの角度はeuler_to_quaternion(0, pitch, yaw)への入力値で、
+# タスクの「pitch」表記(水平からの角度)+90°に相当する。
+TARGET_PITCH_RAD = 150.0 * math.pi / 180.0
+
 def euler_to_quaternion(roll, pitch, yaw):
     cy = math.cos(yaw * 0.5)
     sy = math.sin(yaw * 0.5)
@@ -319,7 +333,7 @@ class PickAndPlaceNode(Node):
         req = GetPositionIK.Request()
         req.ik_request.group_name = 'arm'
         req.ik_request.avoid_collisions = False
-        req.ik_request.ik_link_name = 'link6'
+        req.ik_request.ik_link_name = 'grasp_link'
         
         if self.current_joint_state is not None:
             req.ik_request.robot_state.joint_state = self.current_joint_state
@@ -420,12 +434,12 @@ class PickAndPlaceNode(Node):
         self.get_logger().info(f"Targeting Trash ID: {closest_id} ({trash_name}, distance in map: {min_dist:.3f}m)")
         
         target_yaw = math.atan2(ty, tx)
-        target_pitch = 135.0 * math.pi / 180.0
+        target_pitch = TARGET_PITCH_RAD
         
         def abort_sequence(error_msg):
             self.get_logger().error(f"Abort triggered: {error_msg}")
             self.stop_pose_tracking()
-            self.send_gripper_trajectory(0.0, 1.0)
+            self.send_gripper_trajectory(GRIPPER_OPEN, 1.0)
             self.send_arm_trajectory(self.patrol_joints, 2.5)
             self.get_logger().info("Aborted sequence. Arm returned to look-down patrol pose.")
         
@@ -452,7 +466,7 @@ class PickAndPlaceNode(Node):
             
         # 3. 開爪
         self.get_logger().info("[Step 3/11] Opening gripper...")
-        if not self.send_gripper_trajectory(0.0, 1.0):
+        if not self.send_gripper_trajectory(GRIPPER_OPEN, 1.0):
             abort_sequence("Failed to open gripper.")
             return response
             
@@ -474,7 +488,7 @@ class PickAndPlaceNode(Node):
         
         # 6. 閉爪
         self.get_logger().info("[Step 6/11] Closing gripper...")
-        if not self.send_gripper_trajectory(0.015, 1.0):
+        if not self.send_gripper_trajectory(GRIPPER_CLOSED_GRASP, 1.0):
             abort_sequence("Failed to close gripper.")
             return response
             
@@ -499,9 +513,10 @@ class PickAndPlaceNode(Node):
             abort_sequence("Failed to execute Lift joint trajectory.")
             return response
             
-        # 8. drop_pose
+        # 8. drop_pose (SRDF drop_pose group_state: grasp_link=(0.10,0.25,0.25)
+        # pitch=60deg, IK/FK検証済み 2026-08-07)
         self.get_logger().info("[Step 8/11] Moving to Drop pose...")
-        drop_joints = [1.57, -0.2, 0.4, 0.0, 0.4, 0.0]
+        drop_joints = [1.9652, 0.6362, 0.862, -0.3746, 1.2729, -0.7525]
         if not self.send_arm_trajectory(drop_joints, 2.5):
             abort_sequence("Failed to move to Drop pose.")
             return response
@@ -528,7 +543,7 @@ class PickAndPlaceNode(Node):
         
         # 10. 開爪
         self.get_logger().info("[Step 10/11] Opening gripper...")
-        if not self.send_gripper_trajectory(0.0, 1.0):
+        if not self.send_gripper_trajectory(GRIPPER_OPEN, 1.0):
             abort_sequence("Failed to open gripper at drop.")
             return response
             
