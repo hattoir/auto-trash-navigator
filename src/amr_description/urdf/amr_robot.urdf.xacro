@@ -179,8 +179,10 @@
       </state_interface>
       <state_interface name="velocity"/>
     </joint>
+    <!-- right_finger_joint mimics left_finger_joint (see gripper.xacro);
+         mimic joints must not declare a command_interface (gz_ros2_control
+         rejects "Activated mimic joints cannot have command interfaces"). -->
     <joint name="right_finger_joint">
-      <command_interface name="position"/>
       <state_interface name="position">
         <param name="initial_value">0.0</param>
       </state_interface>

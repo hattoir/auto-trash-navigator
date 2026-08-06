@@ -40,9 +40,12 @@ arm_controller:
 
 gripper_controller:
   ros__parameters:
+    # right_finger_joint mimics left_finger_joint (gripper.xacro) and is
+    # driven by the physics engine's mimic constraint, not by an explicit
+    # command interface (gz_ros2_control rejects command interfaces on
+    # active mimic joints).
     joints:
       - left_finger_joint
-      - right_finger_joint
     command_interfaces:
       - position
     state_interfaces:

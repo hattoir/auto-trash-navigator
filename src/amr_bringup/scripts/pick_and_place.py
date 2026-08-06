@@ -290,11 +290,14 @@ class PickAndPlaceNode(Node):
             self.get_logger().error("Gripper action server not available!")
             return False
             
+        # right_finger_joint mimics left_finger_joint (gripper.xacro) and is
+        # driven by the physics engine's mimic constraint; only the primary
+        # joint is commanded here.
         goal_msg = FollowJointTrajectory.Goal()
-        goal_msg.trajectory.joint_names = ['left_finger_joint', 'right_finger_joint']
-        
+        goal_msg.trajectory.joint_names = ['left_finger_joint']
+
         point = JointTrajectoryPoint()
-        point.positions = [position, position]
+        point.positions = [position]
         point.time_from_start.sec = int(duration)
         point.time_from_start.nanosec = int((duration - int(duration)) * 1e9)
         goal_msg.trajectory.points.append(point)
