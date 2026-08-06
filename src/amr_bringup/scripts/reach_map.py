@@ -43,7 +43,7 @@ class ReachabilityMapper(Node):
     def check_ik(self, x, y, z, cond_type):
         req = GetPositionIK.Request()
         req.ik_request.group_name = 'arm'
-        req.ik_request.ik_link_name = 'link6'
+        req.ik_request.ik_link_name = 'grasp_link'
         req.ik_request.avoid_collisions = False
         
         pose = PoseStamped()
@@ -93,18 +93,18 @@ def main():
     rclpy.init()
     node = ReachabilityMapper()
     
-    z = 0.012
-    
+    z = 0.020
+
     # x ranges from 0.7 down to 0.0 (step 0.05)
     x_coords = []
     curr_x = 0.7
     while curr_x >= -0.001:
         x_coords.append(round(curr_x, 2))
         curr_x -= 0.05
-        
+
     y_coords = []
-    curr_y = -0.4
-    while curr_y <= 0.401:
+    curr_y = -0.5
+    while curr_y <= 0.501:
         y_coords.append(round(curr_y, 2))
         curr_y += 0.05
         
@@ -142,7 +142,7 @@ def main():
                     
         # Print ASCII map
         print(f"\n=== Reachability Map ({cond_name}) ===")
-        print("Columns (Y): -0.4m to +0.4m (left to right, step 0.05m)")
+        print("Columns (Y): -0.5m to +0.5m (left to right, step 0.05m)")
         print("Rows (X): 0.7m down to 0.0m (top to bottom, step 0.05m)\n")
         
         # Print Y header indices
