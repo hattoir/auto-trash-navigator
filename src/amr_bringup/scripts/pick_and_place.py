@@ -50,6 +50,19 @@ GRIPPER_CLOSED_GRASP = -0.004
 # タスクの「pitch」表記(水平からの角度)+90°に相当する。
 TARGET_PITCH_RAD = 150.0 * math.pi / 180.0
 
+# --- 混合姿勢方式(Pre-grasp/Lift は垂直寄り、Grasp瞬間のみ60°) ---
+# 実測(compute_ik走査)で、Grasp姿勢(pitch=60°)は到達域が床付近
+# (z≈0.02)のごく薄い層に限られ、8cm/4.5cm上方でホバーする従来設計とは
+# 両立しないことが判明した。一方 pitch=90°(真下)は同じ(x,y)で
+# z=0.02〜0.20の広い範囲に到達できるため、Pre-grasp/LiftはPitch=90°で
+# 実施し、Grasp直前だけ pitch=60° へ遷移する。
+# PRE_GRASP_Z=0.10 は接近先座標 (x≈0.32, y≈0.10、patrol_and_collect.py
+# のAPPROACH_TARGET_*_REL参照) で pitch=90°/75°/60°いずれも解け、
+# 周囲±0.02mでも大半解ける「余裕のある」高さとして実測確認済み。
+PRE_GRASP_Z = 0.10
+PRE_GRASP_PITCH_RAD = math.pi  # タスクのpitch=90°(真下)に相当
+DESCENT_STEPS = 10  # Pre-grasp -> Grasp を10分割し、pitch/zを線形補間
+
 def euler_to_quaternion(roll, pitch, yaw):
     cy = math.cos(yaw * 0.5)
     sy = math.sin(yaw * 0.5)
@@ -446,90 +459,89 @@ class PickAndPlaceNode(Node):
             self.send_arm_trajectory(self.patrol_joints, 2.5)
             self.get_logger().info("Aborted sequence. Arm returned to look-down patrol pose.")
         
-        # 1. home (patrol pose)
-        self.get_logger().info("[Step 1/11] Moving arm to home look-down patrol pose...")
+        # A. home (patrol pose)
+        self.get_logger().info("[Step A] Moving arm to home look-down patrol pose...")
         if not self.send_arm_trajectory(self.patrol_joints, 2.5):
             abort_sequence("Failed to move to Home patrol pose at start.")
             return response
-            
-        # 2. プリグラスプ (対象の上方8cm, pitch45deg)
-        self.get_logger().info("[Step 2/11] Moving to Pre-grasp pose (z = target_z + 0.08)...")
-        pre_grasp_z = tz_val + 0.08
-        pre_grasp_joints = self.solve_ik(tx, ty, pre_grasp_z, target_pitch, target_yaw)
+
+        # B. Pre-grasp (pitch=90°, 実測で確認済みの高さ) + 開爪
+        self.get_logger().info(f"[Step B] Moving to Pre-grasp pose (z={PRE_GRASP_Z}, pitch=90deg)...")
+        pre_grasp_joints = self.solve_ik(tx, ty, PRE_GRASP_Z, PRE_GRASP_PITCH_RAD, target_yaw)
         if pre_grasp_joints is None:
-            self.get_logger().warn("IK failed at 8cm above. Trying 4.5cm above (z = target_z + 0.045)...")
-            pre_grasp_z = tz_val + 0.045
-            pre_grasp_joints = self.solve_ik(tx, ty, pre_grasp_z, target_pitch, target_yaw)
-        if pre_grasp_joints is None:
-            abort_sequence(f"IK failed for Pre-grasp pose at both 8cm and 4.5cm (x={tx:.3f}, y={ty:.3f})")
+            abort_sequence(f"IK failed for Pre-grasp pose (x={tx:.3f}, y={ty:.3f}, z={PRE_GRASP_Z:.3f})")
             return response
         if not self.send_arm_trajectory(pre_grasp_joints, 2.5):
             abort_sequence("Failed to execute Pre-grasp joint trajectory.")
             return response
-            
-        # 3. 開爪
-        self.get_logger().info("[Step 3/11] Opening gripper...")
+
+        self.get_logger().info("[Step B] Opening gripper...")
         if not self.send_gripper_trajectory(GRIPPER_OPEN, 1.0):
-            abort_sequence("Failed to open gripper.")
+            abort_sequence("Failed to open gripper at Pre-grasp.")
             return response
-            
-        # 4. 接近 (対象位置)
-        self.get_logger().info("[Step 4/11] Moving down to Grasp pose (z = target_z)...")
+
+        # C. 降下経路 (pitch 90°->60°, z Pre-grasp->target を10分割で線形補間)。
+        # 実測(compute_ik)でこの座標帯は10分割の全区間が解けることを
+        # 確認済みだが、実際の検出座標は格子点からずれるため、実行時にも
+        # 全ウェイポイントを先にIKで検証してから動かす(途中で解のない
+        # 区間に入って止まらないようにするため)。
+        self.get_logger().info("[Step C] Solving descent path (Pre-grasp -> Grasp, pitch 90->60deg)...")
         grasp_z = tz_val
-        grasp_joints = self.solve_ik(tx, ty, grasp_z, target_pitch, target_yaw)
-        if grasp_joints is None:
-            abort_sequence(f"IK failed for Grasp pose (x={tx:.3f}, y={ty:.3f}, z={grasp_z:.3f})")
-            return response
-        if not self.send_arm_trajectory(grasp_joints, 2.0):
-            abort_sequence("Failed to execute Grasp joint trajectory.")
-            return response
-            
-        # 5. 吸着 (Start pose tracking thread)
-        self.get_logger().info(f"[Step 5/11] Attaching trash {trash_name} via Pose Tracking...")
+        descent_waypoints = []
+        for i in range(1, DESCENT_STEPS + 1):
+            frac = i / DESCENT_STEPS
+            wp_z = PRE_GRASP_Z + (grasp_z - PRE_GRASP_Z) * frac
+            wp_pitch = PRE_GRASP_PITCH_RAD + (target_pitch - PRE_GRASP_PITCH_RAD) * frac
+            wp_joints = self.solve_ik(tx, ty, wp_z, wp_pitch, target_yaw)
+            if wp_joints is None:
+                abort_sequence(
+                    f"IK failed for descent waypoint {i}/{DESCENT_STEPS} "
+                    f"(x={tx:.3f}, y={ty:.3f}, z={wp_z:.3f}, pitch_rad={wp_pitch:.3f})")
+                return response
+            descent_waypoints.append(wp_joints)
+
+        self.get_logger().info(f"[Step C] Descent path fully solved ({DESCENT_STEPS} waypoints). Executing...")
+        for i, wp_joints in enumerate(descent_waypoints, start=1):
+            if not self.send_arm_trajectory(wp_joints, 0.4):
+                abort_sequence(f"Failed to execute descent waypoint {i}/{DESCENT_STEPS}.")
+                return response
+        grasp_joints = descent_waypoints[-1]
+
+        # D. 吸着 (Start pose tracking thread) + 閉爪
+        self.get_logger().info(f"[Step D] Attaching trash {trash_name} via Pose Tracking...")
         self.start_pose_tracking(trash_name)
         time.sleep(0.3)
-        
-        # 6. 閉爪
-        self.get_logger().info("[Step 6/11] Closing gripper...")
+
+        self.get_logger().info("[Step D] Closing gripper...")
         if not self.send_gripper_trajectory(GRIPPER_CLOSED_GRASP, 1.0):
             abort_sequence("Failed to close gripper.")
             return response
-            
-        # 7. 持ち上げ (上方10cm)
-        self.get_logger().info("[Step 7/11] Lifting up trash (z = target_z + 0.10)...")
-        lift_z = tz_val + 0.10
-        lift_joints = self.solve_ik(tx, ty, lift_z, target_pitch, target_yaw)
+
+        # E. Lift (Pre-grasp と同じ高さ・pitch=90°へ戻る。Step Bで到達
+        # 確認済みの座標のため、10cm/5cmフォールバック探索は不要)
+        self.get_logger().info(f"[Step E] Lifting to Pre-grasp height (z={PRE_GRASP_Z}, pitch=90deg)...")
+        lift_joints = self.solve_ik(tx, ty, PRE_GRASP_Z, PRE_GRASP_PITCH_RAD, target_yaw)
         if lift_joints is None:
-            self.get_logger().warn("IK failed for 10cm lift. Trying 5cm lift (z = target_z + 0.05)...")
-            lift_z = tz_val + 0.05
-            lift_joints = self.solve_ik(tx, ty, lift_z, target_pitch, target_yaw)
-        if lift_joints is None:
-            self.get_logger().warn("IK failed for Lift pose. Attempting fallback direct joint lift.")
-            if len(grasp_joints) >= 3:
-                lift_joints = list(grasp_joints)
-                lift_joints[1] -= 0.2
-                lift_joints[2] += 0.2
-        if lift_joints is None:
-            abort_sequence("IK failed and no fallback joints available for Lift pose.")
+            abort_sequence(f"IK failed for Lift pose (x={tx:.3f}, y={ty:.3f}, z={PRE_GRASP_Z:.3f})")
             return response
         if not self.send_arm_trajectory(lift_joints, 2.0):
             abort_sequence("Failed to execute Lift joint trajectory.")
             return response
-            
-        # 8. drop_pose (SRDF drop_pose group_state: grasp_link=(0.10,0.25,0.25)
+
+        # F. drop_pose (SRDF drop_pose group_state: grasp_link=(0.10,0.25,0.25)
         # pitch=60deg, IK/FK検証済み 2026-08-07)
-        self.get_logger().info("[Step 8/11] Moving to Drop pose...")
+        self.get_logger().info("[Step F] Moving to Drop pose...")
         drop_joints = [1.9652, 0.6362, 0.862, -0.3746, 1.2729, -0.7525]
         if not self.send_arm_trajectory(drop_joints, 2.5):
             abort_sequence("Failed to move to Drop pose.")
             return response
-            
-        # 9. 解放 (Stop pose tracking and final teleport to dustbox)
+
+        # 解放 (Stop pose tracking and final teleport to dustbox)
         # sim専用: 実機ではアーム投下そのもので実現(ドロップ姿勢へ移動して
         # 開爪するだけでダストボックスに入る設計とする)。ここでは
         # アーム動作(drop_joints)は演出として維持しつつ、最終座標だけを
         # ワールド固定のダストボックス位置に差し替える。
-        self.get_logger().info(f"[Step 9/11] Detaching trash {trash_name} via Pose Teleport to dustbox...")
+        self.get_logger().info(f"[Step F] Detaching trash {trash_name} via Pose Teleport to dustbox...")
         self.stop_pose_tracking()
 
         drop_x, drop_y, drop_z = DUSTBOX_LOCATION
@@ -543,19 +555,17 @@ class PickAndPlaceNode(Node):
         ]
         subprocess.run(cmd, capture_output=True)
         time.sleep(0.3)
-        
-        # 10. 開爪
-        self.get_logger().info("[Step 10/11] Opening gripper...")
+
+        self.get_logger().info("[Step F] Opening gripper...")
         if not self.send_gripper_trajectory(GRIPPER_OPEN, 1.0):
             abort_sequence("Failed to open gripper at drop.")
             return response
-            
-        # 11. home (patrol pose)
-        self.get_logger().info("[Step 11/11] Returning to Home look-down patrol pose...")
+
+        self.get_logger().info("[Step F] Returning to Home look-down patrol pose...")
         if not self.send_arm_trajectory(self.patrol_joints, 2.5):
             self.get_logger().error("Failed to return to Home patrol pose at end.")
             return response
-            
+
         self.get_logger().info("Pick and place sequence successfully completed!")
         
         dummy_pose = PoseStamped()

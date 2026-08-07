@@ -25,7 +25,20 @@ TRASH_COORDINATES = {
     2: (0.2, 2.2),
     3: (-2.2, 0.2),
 }
-APPROACH_DISTANCE = 0.30
+
+# --- 接近位置のオフセット(IK特異領域の回避) ---
+# 実測(compute_ik走査)で、対象が base_footprint 基準で真正面(y≈0)に
+# 来ると肩・肘の可動域だけでは把持姿勢が作れない特異領域になることが
+# 判明した。x=0.30,y=0.00 はGrasp姿勢(pitch=60°)のIK解が存在せず、
+# |y|<=0.04 の帯全体が同様に到達不能。一方 x=0.32,y=0.10 は
+# Pre-grasp(pitch=90°)/中間点(pitch=75°)/Grasp(pitch=60°)の全てが
+# 解け、周囲±0.02mの格子点でも大半が解ける(最も余裕のある組み合わせ)。
+# そのため、対象がロボット正面ではなくこの座標に来るよう、接近位置を
+# 横方向にオフセットさせて停止する。
+APPROACH_TARGET_X_REL = 0.32   # base_footprint前方(IK実測の到達余裕点)
+APPROACH_TARGET_Y_REL = 0.10   # base_footprint左方(正=左、特異領域回避)
+APPROACH_OFFSET_ANGLE = math.atan2(APPROACH_TARGET_Y_REL, APPROACH_TARGET_X_REL)
+APPROACH_OFFSET_DIST = math.hypot(APPROACH_TARGET_X_REL, APPROACH_TARGET_Y_REL)
 MAX_CONSECUTIVE_FAILURES = 3
 GOAL_TIMEOUT_SEC = 120.0
 # --- Localization health guard (Phase 5 integration fix) ---
@@ -418,12 +431,23 @@ def main():
                         time.sleep(1.0)
                         continue
                         
+                    # 対象への素の方位(theta)から、IK特異領域回避オフセット分
+                    # だけヨーをずらし、その方位に沿ってオフセット距離だけ
+                    # 後退した位置に停止する。到着後、対象は base_footprint
+                    # 基準で (APPROACH_TARGET_X_REL, APPROACH_TARGET_Y_REL)
+                    # に来る計算(導出: 目標姿勢での相対座標は
+                    # x_rel=offset_dist*cos(offset_angle)=X_REL,
+                    # y_rel=offset_dist*sin(offset_angle)=Y_REL)。
                     theta = math.atan2(ty - ry, tx - rx)
-                    goal_x = tx - APPROACH_DISTANCE * math.cos(theta)
-                    goal_y = ty - APPROACH_DISTANCE * math.sin(theta)
-                    
-                    goal_pose = make_pose(navigator, goal_x, goal_y, theta)
-                    navigator.get_logger().info(f"Going to approach pose: ({goal_x:.3f}, {goal_y:.3f}) facing {theta:.3f} rad")
+                    goal_yaw = theta - APPROACH_OFFSET_ANGLE
+                    goal_x = tx - APPROACH_OFFSET_DIST * math.cos(theta)
+                    goal_y = ty - APPROACH_OFFSET_DIST * math.sin(theta)
+
+                    goal_pose = make_pose(navigator, goal_x, goal_y, goal_yaw)
+                    navigator.get_logger().info(
+                        f"Going to approach pose: ({goal_x:.3f}, {goal_y:.3f}) facing {goal_yaw:.3f} rad "
+                        f"(offset {APPROACH_OFFSET_DIST:.3f}m @ {APPROACH_OFFSET_ANGLE:.3f}rad from bearing {theta:.3f}rad; "
+                        f"expected base_footprint-relative trash pos: x_rel={APPROACH_TARGET_X_REL:.3f}, y_rel={APPROACH_TARGET_Y_REL:.3f})")
                     
                     navigator.goToPose(goal_pose)
                     time.sleep(0.8) # Wait for Action server to accept and start the task
