@@ -99,7 +99,16 @@ controller_server:
       plugin: "nav2_controller::SimpleGoalChecker"
       # Changed xy_goal_tolerance from 0.25 to 0.05 to fix the 0.25m early stopping error.
       xy_goal_tolerance: 0.05
-      yaw_goal_tolerance: 0.25
+      # 20260808: integration test showed a real approach-pose arrival with
+      # y_rel=0.035 vs the intended 0.090 (0.055m off) -- larger than the
+      # +-0.03m diagonal offset the pick unit test validated against, which
+      # made Grasp IK fail and blacklisted an otherwise-reachable trash item.
+      # At the ~0.34m approach offset distance, yaw error alone contributes
+      # offset_dist*sin(yaw_tol) of lateral error at the trash; the old 0.25rad
+      # tolerance allows up to ~0.085m, well outside the verified reachable
+      # band. Tightened to 0.05rad (~0.017m contribution) to keep arrival
+      # error within the band the pick unit test actually validated.
+      yaw_goal_tolerance: 0.05
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
       time_steps: 56
