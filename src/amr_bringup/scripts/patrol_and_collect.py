@@ -570,13 +570,18 @@ def main():
                         else:
                             navigator.get_logger().warn(f"Manipulator pick-and-place attempt {attempt} timed out.")
 
-                    # If first attempt failed, adjust vehicle position (0.05m forward)
+                    # If first attempt failed, adjust vehicle position (x/y両方向)。
+                    # pick_and_place.py側の把持目標探索(±0.05m)を導入した後も、
+                    # それを上回る到着誤差の可能性に備えたラストリゾートとして、
+                    # 前進成分だけでなく側方成分も加える(従来はx前進のみ)。
                     if attempt == 1:
-                        navigator.get_logger().info("First pick attempt failed. Attempting recovery: adjusting vehicle position 0.05m forward...")
+                        navigator.get_logger().info("First pick attempt failed. Attempting recovery: adjusting vehicle position (forward+lateral)...")
                         rx, ry, ryaw = get_robot_pose(navigator)
                         if rx is not None:
-                            adj_x = rx + 0.05 * math.cos(ryaw)
-                            adj_y = ry + 0.05 * math.sin(ryaw)
+                            fwd = 0.05
+                            lat = 0.05
+                            adj_x = rx + fwd * math.cos(ryaw) - lat * math.sin(ryaw)
+                            adj_y = ry + fwd * math.sin(ryaw) + lat * math.cos(ryaw)
                             adj_pose = make_pose(navigator, adj_x, adj_y, ryaw)
                             navigator.get_logger().info(f"Moving to adjusted pose: ({adj_x:.3f}, {adj_y:.3f})")
                             navigator.goToPose(adj_pose)
@@ -593,9 +598,9 @@ def main():
 
                             result = navigator.getResult()
                             if not aborted and result == TaskResult.SUCCEEDED:
-                                navigator.get_logger().info("Successfully moved 0.05m forward for adjustment.")
+                                navigator.get_logger().info("Successfully moved for forward+lateral adjustment.")
                             else:
-                                navigator.get_logger().warn("Failed to move forward for adjustment.")
+                                navigator.get_logger().warn("Failed to move for adjustment.")
                             time.sleep(1.0) # Wait a bit before retry
                 
                 if success:

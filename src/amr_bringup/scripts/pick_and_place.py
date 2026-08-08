@@ -67,6 +67,30 @@ PRE_GRASP_Z_CANDIDATES = [0.16, 0.14, 0.12, 0.10, 0.08, 0.06, 0.04, 0.02]
 PRE_GRASP_PITCH_RAD = math.pi  # タスクのpitch=90°(真下)に相当
 DESCENT_STEPS = 10  # Pre-grasp -> Grasp を10分割し、pitch/zを線形補間
 
+# --- 把持目標探索(2026-08-09 自律改善ループ2) ---
+# 統合検証で、Nav2の実到着誤差(y方向5〜6cm)がGrasp到達域の許容(±3cm)を
+# 上回り、車体の停止精度だけでは埋まらないことが判明した。そこで
+# 「車体で正確に合わせる」のをやめ、「到着後にアーム側で解ける点を探す」
+# 設計に変更する。対象(紙くず、直径約24mm)は検出座標を中心に
+# ±0.05mずれてもグリッパー開口(最大60mm)内に収まるため、検出座標
+# そのものではなく、その近傍でPre-grasp/降下経路/Graspの全区間が
+# IKで解ける点を能動的に探索し、そこを把持目標として採用する。
+# 探索順序は対象中心に近い候補から試す(グリップ精度を優先)。
+GRASP_SEARCH_STEP = 0.02
+GRASP_SEARCH_MAX = 0.05
+_offsets_1d = sorted(
+    {round(v, 3) for v in
+     [0.0] +
+     [i * GRASP_SEARCH_STEP for i in range(1, int(GRASP_SEARCH_MAX / GRASP_SEARCH_STEP) + 1)] +
+     [-i * GRASP_SEARCH_STEP for i in range(1, int(GRASP_SEARCH_MAX / GRASP_SEARCH_STEP) + 1)] +
+     [GRASP_SEARCH_MAX, -GRASP_SEARCH_MAX]},
+    key=abs
+)
+GRASP_SEARCH_OFFSETS = sorted(
+    [(dx, dy) for dx in _offsets_1d for dy in _offsets_1d],
+    key=lambda p: p[0] ** 2 + p[1] ** 2
+)
+
 def euler_to_quaternion(roll, pitch, yaw):
     cy = math.cos(yaw * 0.5)
     sy = math.sin(yaw * 0.5)
@@ -399,6 +423,49 @@ class PickAndPlaceNode(Node):
             self.get_logger().warn(f"IK failed with error code: {err_code}")
             return None
 
+    def find_grasp_target(self, tx, ty, tz_val, target_yaw):
+        """検出座標(tx,ty)近傍の候補点(GRASP_SEARCH_OFFSETS)を近い順に走査し、
+        Pre-grasp高さ探索+降下経路(10分割)+Graspまで全区間がIKで解ける
+        最初の点を返す。見つからなければNoneを返す。"""
+        for dx, dy in GRASP_SEARCH_OFFSETS:
+            cand_tx = tx + dx
+            cand_ty = ty + dy
+
+            pre_grasp_joints = None
+            pre_grasp_z = None
+            for cand_z in PRE_GRASP_Z_CANDIDATES:
+                pre_grasp_joints = self.solve_ik(cand_tx, cand_ty, cand_z, PRE_GRASP_PITCH_RAD, target_yaw)
+                if pre_grasp_joints is not None:
+                    pre_grasp_z = cand_z
+                    break
+            if pre_grasp_joints is None:
+                continue
+
+            descent_waypoints = []
+            path_ok = True
+            for i in range(1, DESCENT_STEPS + 1):
+                frac = i / DESCENT_STEPS
+                wp_z = pre_grasp_z + (tz_val - pre_grasp_z) * frac
+                wp_pitch = PRE_GRASP_PITCH_RAD + (TARGET_PITCH_RAD - PRE_GRASP_PITCH_RAD) * frac
+                wp_joints = self.solve_ik(cand_tx, cand_ty, wp_z, wp_pitch, target_yaw)
+                if wp_joints is None:
+                    path_ok = False
+                    break
+                descent_waypoints.append(wp_joints)
+            if not path_ok:
+                continue
+
+            self.get_logger().info(
+                f"[Grasp Search] Found solvable point at offset (dx={dx:+.2f}, dy={dy:+.2f}) "
+                f"from detected coords -> target=({cand_tx:.3f},{cand_ty:.3f}), pre_grasp_z={pre_grasp_z}")
+            return {
+                'tx': cand_tx, 'ty': cand_ty,
+                'dx': dx, 'dy': dy,
+                'pre_grasp_joints': pre_grasp_joints, 'pre_grasp_z': pre_grasp_z,
+                'descent_waypoints': descent_waypoints,
+            }
+        return None
+
     def pick_trash_callback(self, request, response):
         self.get_logger().info("Received /pick_trash request.")
         self.publish_planning_scene()
@@ -454,8 +521,7 @@ class PickAndPlaceNode(Node):
         self.get_logger().info(f"Targeting Trash ID: {closest_id} ({trash_name}, distance in map: {min_dist:.3f}m)")
         
         target_yaw = math.atan2(ty, tx)
-        target_pitch = TARGET_PITCH_RAD
-        
+
         def abort_sequence(error_msg):
             self.get_logger().error(f"Abort triggered: {error_msg}")
             self.stop_pose_tracking()
@@ -469,19 +535,25 @@ class PickAndPlaceNode(Node):
             abort_sequence("Failed to move to Home patrol pose at start.")
             return response
 
-        # B. Pre-grasp (pitch=90°, 高い候補から順にIKで探索) + 開爪
-        self.get_logger().info(f"[Step B] Searching Pre-grasp height from candidates {PRE_GRASP_Z_CANDIDATES} (pitch=90deg)...")
-        pre_grasp_joints = None
-        pre_grasp_z = None
-        for cand_z in PRE_GRASP_Z_CANDIDATES:
-            pre_grasp_joints = self.solve_ik(tx, ty, cand_z, PRE_GRASP_PITCH_RAD, target_yaw)
-            if pre_grasp_joints is not None:
-                pre_grasp_z = cand_z
-                self.get_logger().info(f"[Step B] Pre-grasp height found: z={pre_grasp_z}")
-                break
-        if pre_grasp_joints is None:
-            abort_sequence(f"IK failed for Pre-grasp pose at all candidate heights (x={tx:.3f}, y={ty:.3f})")
+        # B+C. 把持目標探索: 検出座標(tx,ty)近傍(±0.05m, 0.02m刻み)で
+        # Pre-grasp高さ探索+降下経路(10分割)+Graspの全区間がIKで解ける
+        # 点を、対象に近い順に探す。対象(直径約24mm)はグリッパー開口
+        # (最大60mm)に対して十分な余裕があるため、検出座標そのものに
+        # 拘らず、解ける近傍点があればそこを把持目標として採用する。
+        self.get_logger().info(f"[Step B] Searching grasp target near ({tx:.3f},{ty:.3f}) "
+                                f"(offsets up to +-{GRASP_SEARCH_MAX}m, step {GRASP_SEARCH_STEP}m)...")
+        grasp_target = self.find_grasp_target(tx, ty, tz_val, target_yaw)
+        if grasp_target is None:
+            abort_sequence(f"No solvable grasp target found within +-{GRASP_SEARCH_MAX}m of "
+                            f"(x={tx:.3f}, y={ty:.3f})")
             return response
+        gtx, gty = grasp_target['tx'], grasp_target['ty']
+        pre_grasp_joints = grasp_target['pre_grasp_joints']
+        pre_grasp_z = grasp_target['pre_grasp_z']
+        descent_waypoints = grasp_target['descent_waypoints']
+        self.get_logger().info(f"[Step B] Pre-grasp height found: z={pre_grasp_z} "
+                                f"(grasp target offset dx={grasp_target['dx']:+.2f}, dy={grasp_target['dy']:+.2f})")
+
         if not self.send_arm_trajectory(pre_grasp_joints, 2.5):
             abort_sequence("Failed to execute Pre-grasp joint trajectory.")
             return response
@@ -491,27 +563,9 @@ class PickAndPlaceNode(Node):
             abort_sequence("Failed to open gripper at Pre-grasp.")
             return response
 
-        # C. 降下経路 (pitch 90°->60°, z Pre-grasp->target を10分割で線形補間)。
-        # 実測(compute_ik)でこの座標帯は10分割の全区間が解けることを
-        # 確認済みだが、実際の検出座標は格子点からずれるため、実行時にも
-        # 全ウェイポイントを先にIKで検証してから動かす(途中で解のない
-        # 区間に入って止まらないようにするため)。
-        self.get_logger().info("[Step C] Solving descent path (Pre-grasp -> Grasp, pitch 90->60deg)...")
-        grasp_z = tz_val
-        descent_waypoints = []
-        for i in range(1, DESCENT_STEPS + 1):
-            frac = i / DESCENT_STEPS
-            wp_z = pre_grasp_z + (grasp_z - pre_grasp_z) * frac
-            wp_pitch = PRE_GRASP_PITCH_RAD + (target_pitch - PRE_GRASP_PITCH_RAD) * frac
-            wp_joints = self.solve_ik(tx, ty, wp_z, wp_pitch, target_yaw)
-            if wp_joints is None:
-                abort_sequence(
-                    f"IK failed for descent waypoint {i}/{DESCENT_STEPS} "
-                    f"(x={tx:.3f}, y={ty:.3f}, z={wp_z:.3f}, pitch_rad={wp_pitch:.3f})")
-                return response
-            descent_waypoints.append(wp_joints)
-
-        self.get_logger().info(f"[Step C] Descent path fully solved ({DESCENT_STEPS} waypoints). Executing...")
+        # C. 降下経路の実行(探索済みの10分割ウェイポイントをそのまま使用)
+        self.get_logger().info(f"[Step C] Executing descent path ({DESCENT_STEPS} waypoints, "
+                                f"already IK-verified during grasp target search)...")
         for i, wp_joints in enumerate(descent_waypoints, start=1):
             if not self.send_arm_trajectory(wp_joints, 0.4):
                 abort_sequence(f"Failed to execute descent waypoint {i}/{DESCENT_STEPS}.")
@@ -531,9 +585,9 @@ class PickAndPlaceNode(Node):
         # E. Lift (Step Bで見つかった同じ高さ・pitch=90°へ戻る。
         # 到達確認済みの座標のため、再探索は不要)
         self.get_logger().info(f"[Step E] Lifting to Pre-grasp height (z={pre_grasp_z}, pitch=90deg)...")
-        lift_joints = self.solve_ik(tx, ty, pre_grasp_z, PRE_GRASP_PITCH_RAD, target_yaw)
+        lift_joints = self.solve_ik(gtx, gty, pre_grasp_z, PRE_GRASP_PITCH_RAD, target_yaw)
         if lift_joints is None:
-            abort_sequence(f"IK failed for Lift pose (x={tx:.3f}, y={ty:.3f}, z={pre_grasp_z:.3f})")
+            abort_sequence(f"IK failed for Lift pose (x={gtx:.3f}, y={gty:.3f}, z={pre_grasp_z:.3f})")
             return response
         if not self.send_arm_trajectory(lift_joints, 2.0):
             abort_sequence("Failed to execute Lift joint trajectory.")
