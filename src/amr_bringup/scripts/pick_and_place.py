@@ -191,12 +191,6 @@ class PickAndPlaceNode(Node):
         self.tf_buffer = tf2_ros.Buffer()
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
         
-        # Pose tracking state
-        self.tracking_running = False
-        self.tracking_thread = None
-        self.tracking_trash_name = None
-        self.tracking_lock = threading.Lock()
-        
         self.get_logger().info("Pick and Place Server initialized.")
         
         # Default patrol joints fallback
@@ -205,58 +199,37 @@ class PickAndPlaceNode(Node):
         # Spawn thread to move arm to patrol posture after node starts
         threading.Thread(target=self.initialize_patrol_pose, daemon=True).start()
 
-    def start_pose_tracking(self, trash_name):
-        with self.tracking_lock:
-            self.stop_pose_tracking_unlocked()
-            self.tracking_trash_name = trash_name
-            self.tracking_running = True
-            self.tracking_thread = threading.Thread(target=self._pose_tracking_loop, daemon=True)
-            self.tracking_thread.start()
-            self.get_logger().info(f"Started pose tracking for {trash_name}")
+    def teleport_trash_to_gripper(self, trash_name):
+        """紙くずを一度だけ現在のlink6位置へテレポートする(把持の演出)。
+        2026-08-10: 以前は10Hzでgz serviceをsubprocess起動し続ける常時追従
+        方式だったが、統合検証の計測でこの連続subprocess生成がピック中の
+        CPU負荷/RTF低下(0.736まで低下)と相関し、joint2(Grasp姿勢で
+        可動域限界1.65rad付近まで動く関節)がその負荷区間で物理的に
+        limit位置へ張り付いて二度と戻れなくなる(effort limit 0.6N・mでは
+        そこから抜け出すトルクが足りない)不具合の一因と推定されたため、
+        把持演出は「把持時に1回」のテレポートのみに簡略化した(解放時の
+        最終テレポートは元々Step Fに存在)。sim専用の演出であり、Lift〜
+        Drop間で紙くずが視覚的にグリッパーへ追従しなくなるが、機能上
+        (回収判定・6条件)には影響しない。"""
+        try:
+            trans = self.tf_buffer.lookup_transform('map', 'link6', rclpy.time.Time())
+            tx = trans.transform.translation.x
+            ty = trans.transform.translation.y
+            tz = trans.transform.translation.z + 0.03
+            req_str = f'name: "{trash_name}", position: {{x: {tx:.4f}, y: {ty:.4f}, z: {tz:.4f}}}'
+            cmd = [
+                'gz', 'service', '-s', '/world/office_room/set_pose',
+                '--reqtype', 'gz.msgs.Pose',
+                '--reptype', 'gz.msgs.Boolean',
+                '--timeout', '500',
+                '--req', req_str
+            ]
+            subprocess.run(cmd, capture_output=True)
+            return (tx, ty, tz)
+        except Exception as e:
+            self.get_logger().warn(f"teleport_trash_to_gripper failed: {e}")
+            return None
 
-    def stop_pose_tracking(self):
-        with self.tracking_lock:
-            return self.stop_pose_tracking_unlocked()
-
-    def stop_pose_tracking_unlocked(self):
-        last_pos = None
-        if self.tracking_running:
-            self.tracking_running = False
-            if self.tracking_thread and self.tracking_thread.is_alive():
-                self.tracking_thread.join(timeout=1.0)
-            self.tracking_thread = None
-            
-            try:
-                trans = self.tf_buffer.lookup_transform('map', 'link6', rclpy.time.Time())
-                last_pos = (trans.transform.translation.x, trans.transform.translation.y, trans.transform.translation.z)
-            except Exception:
-                pass
-            self.get_logger().info(f"Stopped pose tracking for {self.tracking_trash_name}")
-            self.tracking_trash_name = None
-        return last_pos
-
-    def _pose_tracking_loop(self):
-        rate_sec = 0.1 # 10Hz
-        while self.tracking_running:
-            try:
-                trans = self.tf_buffer.lookup_transform('map', 'link6', rclpy.time.Time())
-                tx = trans.transform.translation.x
-                ty = trans.transform.translation.y
-                tz = trans.transform.translation.z + 0.03
-                
-                req_str = f'name: "{self.tracking_trash_name}", position: {{x: {tx:.4f}, y: {ty:.4f}, z: {tz:.4f}}}'
-                cmd = [
-                    'gz', 'service', '-s', '/world/office_room/set_pose',
-                    '--reqtype', 'gz.msgs.Pose',
-                    '--reptype', 'gz.msgs.Boolean',
-                    '--timeout', '500',
-                    '--req', req_str
-                ]
-                subprocess.run(cmd, capture_output=True)
-            except Exception:
-                pass
-            time.sleep(rate_sec)
-        
     def initialize_patrol_pose(self):
         # Wait 15.0 seconds for move_group to start up and register joint trajectory controllers
         time.sleep(15.0)
@@ -338,7 +311,58 @@ class PickAndPlaceNode(Node):
         
         res = get_result_future.result()
         return res is not None
-        
+
+    def verify_and_return_home(self, context_label, tolerance_rad=0.08, max_attempts=3):
+        """armをhome(patrol_joints, 全関節0)へ送り、実際の/joint_states
+        (self.current_joint_state)で到達を確認する。
+        2026-08-10: joint_trajectory_controller に goal_tolerance/
+        constraints が明示設定されておらず(amr_controllers.yaml参照)、
+        デフォルトでは目標時刻に達すれば実際の到達誤差を見ずに
+        SUCCEEDED を返すことを統合検証中の直接計測で確認した
+        (action goalをjoint2=1.65のまま送っても "Goal successfully
+        reached!" と返り、実関節は1.65から動いていなかった)。
+        そのためsend_arm_trajectoryの戻り値だけでは実際の到達を保証
+        できず、必ず/joint_statesで裏取りする。届いていなければ複数回
+        再送を試みる(URDF上のeffort limitが0.6N・mと小さく、Grasp姿勢
+        (pitch=60°)でjoint2が可動域限界1.65rad付近まで動くケースでは、
+        限界位置に物理的に張り付いて再送でも戻らないことがあるため、
+        再送で回復しない場合は明確に失敗として報告する)。"""
+        arm_joint_names = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
+        for attempt in range(1, max_attempts + 1):
+            if not self.send_arm_trajectory(self.patrol_joints, 2.5):
+                self.get_logger().warn(f"[verify_and_return_home:{context_label}] "
+                                        f"send_arm_trajectory itself failed (attempt {attempt}/{max_attempts}).")
+                continue
+            time.sleep(0.3)
+            js = self.current_joint_state
+            if js is None:
+                self.get_logger().warn(f"[verify_and_return_home:{context_label}] "
+                                        f"no /joint_states received yet; cannot verify (attempt {attempt}/{max_attempts}).")
+                continue
+            name_pos_map = dict(zip(js.name, js.position))
+            errors = {}
+            ok = True
+            for name in arm_joint_names:
+                if name not in name_pos_map:
+                    ok = False
+                    continue
+                err = abs(name_pos_map[name])  # target is 0.0 for all home joints
+                errors[name] = round(err, 4)
+                if err > tolerance_rad:
+                    ok = False
+            if ok:
+                if attempt > 1:
+                    self.get_logger().info(f"[verify_and_return_home:{context_label}] "
+                                            f"reached home on attempt {attempt}/{max_attempts}. errors={errors}")
+                return True
+            self.get_logger().warn(f"[verify_and_return_home:{context_label}] "
+                                    f"arm NOT at home after attempt {attempt}/{max_attempts}. "
+                                    f"joint errors(rad)={errors} (tolerance={tolerance_rad})")
+        self.get_logger().error(f"[verify_and_return_home:{context_label}] "
+                                 f"FAILED to reach home after {max_attempts} attempts. "
+                                 f"Arm likely physically stuck (see joint errors above).")
+        return False
+
     def send_gripper_trajectory(self, position, duration=1.0):
         if not self.gripper_action.wait_for_server(timeout_sec=5.0):
             self.get_logger().error("Gripper action server not available!")
@@ -542,10 +566,8 @@ class PickAndPlaceNode(Node):
 
         def abort_sequence(error_msg):
             self.get_logger().error(f"Abort triggered: {error_msg}")
-            self.stop_pose_tracking()
             self.send_gripper_trajectory(GRIPPER_OPEN, 1.0)
-            self.send_arm_trajectory(self.patrol_joints, 2.5)
-            self.get_logger().info("Aborted sequence. Arm returned to look-down patrol pose.")
+            self.verify_and_return_home("abort")
         
         # A. home (patrol pose)
         self.get_logger().info("[Step A] Moving arm to home look-down patrol pose...")
@@ -590,9 +612,9 @@ class PickAndPlaceNode(Node):
                 return response
         grasp_joints = descent_waypoints[-1]
 
-        # D. 吸着 (Start pose tracking thread) + 閉爪
-        self.get_logger().info(f"[Step D] Attaching trash {trash_name} via Pose Tracking...")
-        self.start_pose_tracking(trash_name)
+        # D. 吸着 (把持点へ1回だけテレポート) + 閉爪
+        self.get_logger().info(f"[Step D] Attaching trash {trash_name} via single teleport...")
+        self.teleport_trash_to_gripper(trash_name)
         time.sleep(0.3)
 
         self.get_logger().info("[Step D] Closing gripper...")
@@ -625,7 +647,6 @@ class PickAndPlaceNode(Node):
         # アーム動作(drop_joints)は演出として維持しつつ、最終座標だけを
         # ワールド固定のダストボックス位置に差し替える。
         self.get_logger().info(f"[Step F] Detaching trash {trash_name} via Pose Teleport to dustbox...")
-        self.stop_pose_tracking()
 
         drop_x, drop_y, drop_z = DUSTBOX_LOCATION
         req_str = f'name: "{trash_name}", position: {{x: {drop_x:.4f}, y: {drop_y:.4f}, z: {drop_z:.4f}}}'
@@ -645,9 +666,23 @@ class PickAndPlaceNode(Node):
             return response
 
         self.get_logger().info("[Step F] Returning to Home look-down patrol pose...")
-        if not self.send_arm_trajectory(self.patrol_joints, 2.5):
-            self.get_logger().error("Failed to return to Home patrol pose at end.")
-            return response
+        if not self.verify_and_return_home("post-pick"):
+            # 収集そのもの(把持+ダストボックスへのテレポート+開爪)は既に
+            # 完了しているため、ここでresponseを失敗にすると
+            # patrol_and_collect側が「まだ回収できていない」と誤解し、
+            # 既にダストボックスへ移動済みの対象を再度ピックしようとして
+            # しまう(結局0.6m圏外で拒否されるだけの無駄な再試行を生む)。
+            # 回収自体は成功として応答しつつ、armが物理的にhomeへ戻れて
+            # いないという重大な事実はログに残し、次回以降の診断・
+            # 対策の材料とする。
+            self.get_logger().error(
+                "Arm did NOT reach home after pick (joint_trajectory_controller reports "
+                "success without checking actual position -- see verify_and_return_home log "
+                "above for the real joint state). Collection itself already succeeded "
+                "(trash teleported to dustbox), so still reporting pick success -- but the "
+                "arm remaining stuck outside patrol pose will likely disrupt LiDAR/localization "
+                "for the rest of the run. This needs a fix beyond this loop's whitelist "
+                "(see final report).")
 
         self.get_logger().info("Pick and place sequence successfully completed!")
         
@@ -658,7 +693,6 @@ class PickAndPlaceNode(Node):
         return response
 
     def destroy_node(self):
-        self.stop_pose_tracking()
         super().destroy_node()
 
 def main(args=None):
