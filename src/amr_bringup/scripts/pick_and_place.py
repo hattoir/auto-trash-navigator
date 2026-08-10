@@ -91,6 +91,19 @@ GRASP_SEARCH_OFFSETS = sorted(
     key=lambda p: p[0] ** 2 + p[1] ** 2
 )
 
+# --- Grasp高さラダー(2026-08-09 統合検証で追加判明) ---
+# 実際に検出される紙くずのz座標(検出器/実モデルの高さ)は約0.008〜0.012m
+# だが、compute_ik走査でGrasp姿勢(pitch=60°)がその高さでは xy位置に
+# 関わらず全域で解なしとなることが判明した(単体検証は常にz=0.02固定で
+# 実施していたため、この不整合を見逃していた)。走査の結果、実際に
+# 解が存在するのは z=0.012〜0.02 の範囲のみ(それより低いzは検証した
+# 全xy範囲で解なし)。
+# 本実装の「把持」はgz set_poseによるテレポート追従方式(実際の
+# 物理接触に依存しない、sim専用の演出)であるため、Grasp姿勢のzを
+# 検出座標そのものに厳密一致させる必要はない。検出z(tz_val)に最も
+# 近い、かつ実際にIKで解ける高さを候補から選ぶ。
+GRASP_Z_LADDER = [0.02, 0.018, 0.016, 0.014, 0.012]
+
 def euler_to_quaternion(roll, pitch, yaw):
     cy = math.cos(yaw * 0.5)
     sy = math.sin(yaw * 0.5)
@@ -424,46 +437,51 @@ class PickAndPlaceNode(Node):
             return None
 
     def find_grasp_target(self, tx, ty, tz_val, target_yaw):
-        """検出座標(tx,ty)近傍の候補点(GRASP_SEARCH_OFFSETS)を近い順に走査し、
-        Pre-grasp高さ探索+降下経路(10分割)+Graspまで全区間がIKで解ける
-        最初の点を返す。見つからなければNoneを返す。"""
-        for dx, dy in GRASP_SEARCH_OFFSETS:
-            cand_tx = tx + dx
-            cand_ty = ty + dy
+        """検出座標(tx,ty,tz_val)近傍を走査し、Pre-grasp高さ探索+降下経路
+        (10分割)+Graspまで全区間がIKで解ける点を返す。見つからなければ
+        Noneを返す。Grasp高さは検出z(tz_val)に近い候補から、xy位置は
+        検出座標に近いオフセットから順に試す(グリップ精度優先)。"""
+        z_candidates = sorted(GRASP_Z_LADDER, key=lambda z: abs(z - tz_val))
+        for grasp_z in z_candidates:
+            for dx, dy in GRASP_SEARCH_OFFSETS:
+                cand_tx = tx + dx
+                cand_ty = ty + dy
 
-            pre_grasp_joints = None
-            pre_grasp_z = None
-            for cand_z in PRE_GRASP_Z_CANDIDATES:
-                pre_grasp_joints = self.solve_ik(cand_tx, cand_ty, cand_z, PRE_GRASP_PITCH_RAD, target_yaw)
-                if pre_grasp_joints is not None:
-                    pre_grasp_z = cand_z
-                    break
-            if pre_grasp_joints is None:
-                continue
+                pre_grasp_joints = None
+                pre_grasp_z = None
+                for cand_z in PRE_GRASP_Z_CANDIDATES:
+                    pre_grasp_joints = self.solve_ik(cand_tx, cand_ty, cand_z, PRE_GRASP_PITCH_RAD, target_yaw)
+                    if pre_grasp_joints is not None:
+                        pre_grasp_z = cand_z
+                        break
+                if pre_grasp_joints is None:
+                    continue
 
-            descent_waypoints = []
-            path_ok = True
-            for i in range(1, DESCENT_STEPS + 1):
-                frac = i / DESCENT_STEPS
-                wp_z = pre_grasp_z + (tz_val - pre_grasp_z) * frac
-                wp_pitch = PRE_GRASP_PITCH_RAD + (TARGET_PITCH_RAD - PRE_GRASP_PITCH_RAD) * frac
-                wp_joints = self.solve_ik(cand_tx, cand_ty, wp_z, wp_pitch, target_yaw)
-                if wp_joints is None:
-                    path_ok = False
-                    break
-                descent_waypoints.append(wp_joints)
-            if not path_ok:
-                continue
+                descent_waypoints = []
+                path_ok = True
+                for i in range(1, DESCENT_STEPS + 1):
+                    frac = i / DESCENT_STEPS
+                    wp_z = pre_grasp_z + (grasp_z - pre_grasp_z) * frac
+                    wp_pitch = PRE_GRASP_PITCH_RAD + (TARGET_PITCH_RAD - PRE_GRASP_PITCH_RAD) * frac
+                    wp_joints = self.solve_ik(cand_tx, cand_ty, wp_z, wp_pitch, target_yaw)
+                    if wp_joints is None:
+                        path_ok = False
+                        break
+                    descent_waypoints.append(wp_joints)
+                if not path_ok:
+                    continue
 
-            self.get_logger().info(
-                f"[Grasp Search] Found solvable point at offset (dx={dx:+.2f}, dy={dy:+.2f}) "
-                f"from detected coords -> target=({cand_tx:.3f},{cand_ty:.3f}), pre_grasp_z={pre_grasp_z}")
-            return {
-                'tx': cand_tx, 'ty': cand_ty,
-                'dx': dx, 'dy': dy,
-                'pre_grasp_joints': pre_grasp_joints, 'pre_grasp_z': pre_grasp_z,
-                'descent_waypoints': descent_waypoints,
-            }
+                self.get_logger().info(
+                    f"[Grasp Search] Found solvable point at offset (dx={dx:+.2f}, dy={dy:+.2f}), "
+                    f"grasp_z={grasp_z} (detected z={tz_val:.3f}) "
+                    f"-> target=({cand_tx:.3f},{cand_ty:.3f}), pre_grasp_z={pre_grasp_z}")
+                return {
+                    'tx': cand_tx, 'ty': cand_ty,
+                    'dx': dx, 'dy': dy,
+                    'grasp_z': grasp_z,
+                    'pre_grasp_joints': pre_grasp_joints, 'pre_grasp_z': pre_grasp_z,
+                    'descent_waypoints': descent_waypoints,
+                }
         return None
 
     def pick_trash_callback(self, request, response):
