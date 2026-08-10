@@ -37,6 +37,28 @@ arm_controller:
     state_interfaces:
       - position
       - velocity
+    # 2026-08-10: 以前はconstraintsが未設定で、joint_trajectory_controller
+    # のデフォルト(goal_time=0, 各関節tolerance=-1=無効)により、目標
+    # 時刻に達しさえすれば実到達誤差を確認せずSUCCEEDEDを返していた。
+    # これによりjoint2のeffort不足による物理的スタック(loop3で特定)が
+    # ノード側で検出できず、120秒の/pick_trashタイムアウトを待つまで
+    # 気づけなかった。goal/trajectory toleranceを明示し、実到達しない
+    # 場合はアクション自体を失敗として返すようにする(検出の迅速化)。
+    # 2026-08-10 追記: trajectory(経路追従中)toleranceを設定したところ、
+    # ごく普通の起動時home移動ですらPATH_TOLERANCE_VIOLATED(error_code
+    # -4)で即座に失敗するようになった。動作中は多少のPID遅れが正常に
+    # 起こりうるため、経路追従精度ではなく「最終的に到達したか」だけを
+    # 見たい。trajectory tolerance を -1(無効)にし、goal(最終到達)
+    # toleranceのみ有効にする。
+    constraints:
+      stopped_velocity_tolerance: 0.02
+      goal_time: 5.0
+      joint1: {trajectory: -1.0, goal: 0.08}
+      joint2: {trajectory: -1.0, goal: 0.08}
+      joint3: {trajectory: -1.0, goal: 0.08}
+      joint4: {trajectory: -1.0, goal: 0.08}
+      joint5: {trajectory: -1.0, goal: 0.08}
+      joint6: {trajectory: -1.0, goal: 0.08}
 
 gripper_controller:
   ros__parameters:

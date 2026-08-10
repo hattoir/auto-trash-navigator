@@ -48,12 +48,21 @@
     </link>
 
     <!-- ===== Joint 2 : 肩ピッチ (X) ===== -->
+    <!-- 2026-08-10: effortをモデル訂正。CAD実測に基づき、J2より先の
+         質量598g・合成重心距離226mmから、腕が水平になる最悪ケースの
+         重力トルクは 0.598kg * 9.81 * 0.226m ≈ 1.32 N・m と算出される。
+         旧値 effort=0.6 はこれの45%しかなく自重すら支えられない
+         (実際にGrasp姿勢近傍でjoint2が可動域限界に物理的に固着し、
+         二度と戻れなくなる不具合の直接原因と特定済み)。
+         実機サーボ STS3215 のストールトルクは1.9N・mであり、
+         1.5N・m(必要1.32N・mの1.14倍、ストールの79%)は実機でも
+         成立する範囲としてeffortを訂正する。 -->
     <joint name="joint2" type="revolute">
       <parent link="link1"/>
       <child link="link2"/>
       <origin xyz="0 0 0.06445" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="-1.65" upper="1.65" effort="0.6" velocity="2.2"/>
+      <limit lower="-1.65" upper="1.65" effort="1.5" velocity="2.2"/>
       <dynamics damping="1.0" friction="0.4"/>
     </joint>
 
@@ -77,12 +86,16 @@
     </link>
 
     <!-- ===== Joint 3 : 肘ピッチ (X) ===== -->
+    <!-- 2026-08-10: joint2と同じ理由でeffortをモデル訂正(重力
+         モーメントを受けるピッチ軸)。J3より先の質量はJ2より先より
+         小さいが、同じくSTS3215サーボ(ストール1.9N・m)を想定し、
+         安全側にjoint2と同じ1.5N・mへ引き上げる。 -->
     <joint name="joint3" type="revolute">
       <parent link="link2"/>
       <child link="link3"/>
       <origin xyz="0 0 0.10000" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="-1.66" upper="1.66" effort="0.6" velocity="2.2"/>
+      <limit lower="-1.66" upper="1.66" effort="1.5" velocity="2.2"/>
       <dynamics damping="0.8" friction="0.3"/>
     </joint>
 
@@ -135,12 +148,16 @@
     </link>
 
     <!-- ===== Joint 5 : 手首ピッチ (X) ===== -->
+    <!-- 2026-08-10: effortをモデル訂正。手首ピッチは先端側(link5,
+         link6,グリッパー)のみを支えるため質量負荷はjoint2/3より
+         小さいが、同様に重力モーメントを受けるピッチ軸であるため
+         0.6 → 0.9 N・m(STS3215ストール1.9N・mの47%)へ引き上げる。 -->
     <joint name="joint5" type="revolute">
       <parent link="link4"/>
       <child link="link5"/>
       <origin xyz="0 0 0.04245" rpy="0 0 0"/>
       <axis xyz="1 0 0"/>
-      <limit lower="-1.66" upper="1.66" effort="0.6" velocity="2.2"/>
+      <limit lower="-1.66" upper="1.66" effort="0.9" velocity="2.2"/>
       <dynamics damping="0.5" friction="0.2"/>
     </joint>
 

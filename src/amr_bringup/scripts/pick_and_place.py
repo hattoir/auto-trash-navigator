@@ -104,6 +104,32 @@ GRASP_SEARCH_OFFSETS = sorted(
 # 近い、かつ実際にIKで解ける高さを候補から選ぶ。
 GRASP_Z_LADDER = [0.02, 0.018, 0.016, 0.014, 0.012]
 
+# 2026-08-10: 各関節の可動域(so101_arm.xacro参照)。find_grasp_target()で
+# 「可動域端からの余裕」を候補選好に使うために必要。joint2がGrasp姿勢
+# (pitch=60°)近傍でほぼ必ず可動域限界すれすれに追い込まれることが
+# loop3で判明したため(effort引き上げで物理的な固着自体は解消見込みだが、
+# 念のため余裕のある解を優先する)。
+ARM_JOINT_LIMITS = {
+    'joint1': (-3.05, 3.05),
+    'joint2': (-1.65, 1.65),
+    'joint3': (-1.66, 1.66),
+    'joint4': (-3.05, 3.05),
+    'joint5': (-1.66, 1.66),
+    'joint6': (-3.05, 3.05),
+}
+ARM_JOINT_NAMES = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
+
+
+def joint_margin(positions):
+    """関節位置リストから、可動域端までの最小余裕[rad]を返す(小さいほど
+    可動域限界に近い=固着リスクが高い)。"""
+    margins = []
+    for name, pos in zip(ARM_JOINT_NAMES, positions):
+        lo, hi = ARM_JOINT_LIMITS[name]
+        margins.append(min(pos - lo, hi - pos))
+    return min(margins)
+
+
 def euler_to_quaternion(roll, pitch, yaw):
     cy = math.cos(yaw * 0.5)
     sy = math.sin(yaw * 0.5)
@@ -310,7 +336,18 @@ class PickAndPlaceNode(Node):
                 return False
         
         res = get_result_future.result()
-        return res is not None
+        if res is None:
+            return False
+        # 2026-08-10: amr_controllers.yaml に goal/trajectory tolerance を
+        # 明示設定したため、result.result.error_code で実際の到達判定を
+        # 取得できるようになった(以前はconstraints未設定で常にSUCCESSFUL
+        # だったため、error_codeを見ずres is not Noneだけで判定していた)。
+        error_code = getattr(res.result, 'error_code', 0)
+        if error_code != 0:
+            self.get_logger().warn(f"Arm trajectory finished with error_code={error_code} "
+                                    f"(FollowJointTrajectory result, 0=SUCCESSFUL)")
+            return False
+        return True
 
     def verify_and_return_home(self, context_label, tolerance_rad=0.08, max_attempts=3):
         """armをhome(patrol_joints, 全関節0)へ送り、実際の/joint_states
@@ -406,19 +443,30 @@ class PickAndPlaceNode(Node):
         res = get_result_future.result()
         return res is not None
 
-    def solve_ik(self, target_x, target_y, target_z, target_pitch, target_yaw):
+    def solve_ik(self, target_x, target_y, target_z, target_pitch, target_yaw,
+                 avoid_collisions=False, seed_home=False):
         if not self.ik_client.wait_for_service(timeout_sec=5.0):
             self.get_logger().error("/compute_ik service not available!")
             return None
-            
+
         req = GetPositionIK.Request()
         req.ik_request.group_name = 'arm'
-        req.ik_request.avoid_collisions = False
+        req.ik_request.avoid_collisions = avoid_collisions
         req.ik_request.ik_link_name = 'grasp_link'
-        
-        if self.current_joint_state is not None:
+
+        # 2026-08-10: IKシード汚染対策(loop3で「異常な関節配置が残ると
+        # 以降のcompute_ik結果が信頼できなくなる」ことを確認済み)。
+        # seed_home=Trueの場合はライブの現在関節状態を使わず、常に
+        # home(全関節0)をシードにする。把持目標探索の開始時など、
+        # 前回シーケンスの残留状態に依存させたくない箇所で使う。
+        if seed_home:
+            home_js = JointState()
+            home_js.name = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
+            home_js.position = [0.0, 0.0, 0.0, 0.0, 0.0, 0.0]
+            req.ik_request.robot_state.joint_state = home_js
+        elif self.current_joint_state is not None:
             req.ik_request.robot_state.joint_state = self.current_joint_state
-            
+
         target_pose = PoseStamped()
         target_pose.header.frame_id = 'base_footprint'
         target_pose.header.stamp = self.get_clock().now().to_msg()
@@ -460,12 +508,23 @@ class PickAndPlaceNode(Node):
             self.get_logger().warn(f"IK failed with error code: {err_code}")
             return None
 
-    def find_grasp_target(self, tx, ty, tz_val, target_yaw):
+    def find_grasp_target(self, tx, ty, tz_val, target_yaw, candidate_cap=1):
         """検出座標(tx,ty,tz_val)近傍を走査し、Pre-grasp高さ探索+降下経路
         (10分割)+Graspまで全区間がIKで解ける点を返す。見つからなければ
         Noneを返す。Grasp高さは検出z(tz_val)に近い候補から、xy位置は
-        検出座標に近いオフセットから順に試す(グリップ精度優先)。"""
+        検出座標に近いオフセットから順に試す(グリップ精度優先)。
+        2026-08-10: 完全解ける候補をcandidate_cap個集めるまで探索を
+        続け、その中からGrasp姿勢(最も可動域限界に近くなりやすい)の
+        関節余裕が最大のものを採用する(effort引き上げで物理的な固着
+        自体は解消見込みだが、念のため余裕のある解を優先する)。
+        avoid_collisions=True と seed_home=True も試したが、いずれも
+        探索が数分〜完了せずに終わるレベルで大幅に遅くなったため
+        (TRAC-IKが毎回コールドシードから解を探すことになり収束が
+        悪化する、および衝突判定のオーバーヘッド)、性能を優先して
+        両方とも無効(False)に戻した。関節余裕による候補選好のみ
+        有効にしている。"""
         z_candidates = sorted(GRASP_Z_LADDER, key=lambda z: abs(z - tz_val))
+        candidates = []
         for grasp_z in z_candidates:
             for dx, dy in GRASP_SEARCH_OFFSETS:
                 cand_tx = tx + dx
@@ -474,7 +533,8 @@ class PickAndPlaceNode(Node):
                 pre_grasp_joints = None
                 pre_grasp_z = None
                 for cand_z in PRE_GRASP_Z_CANDIDATES:
-                    pre_grasp_joints = self.solve_ik(cand_tx, cand_ty, cand_z, PRE_GRASP_PITCH_RAD, target_yaw)
+                    pre_grasp_joints = self.solve_ik(cand_tx, cand_ty, cand_z, PRE_GRASP_PITCH_RAD, target_yaw,
+                                                      avoid_collisions=False, seed_home=False)
                     if pre_grasp_joints is not None:
                         pre_grasp_z = cand_z
                         break
@@ -487,7 +547,8 @@ class PickAndPlaceNode(Node):
                     frac = i / DESCENT_STEPS
                     wp_z = pre_grasp_z + (grasp_z - pre_grasp_z) * frac
                     wp_pitch = PRE_GRASP_PITCH_RAD + (TARGET_PITCH_RAD - PRE_GRASP_PITCH_RAD) * frac
-                    wp_joints = self.solve_ik(cand_tx, cand_ty, wp_z, wp_pitch, target_yaw)
+                    wp_joints = self.solve_ik(cand_tx, cand_ty, wp_z, wp_pitch, target_yaw,
+                                               avoid_collisions=False, seed_home=False)
                     if wp_joints is None:
                         path_ok = False
                         break
@@ -495,17 +556,34 @@ class PickAndPlaceNode(Node):
                 if not path_ok:
                     continue
 
+                grasp_margin = joint_margin(descent_waypoints[-1])
                 self.get_logger().info(
-                    f"[Grasp Search] Found solvable point at offset (dx={dx:+.2f}, dy={dy:+.2f}), "
+                    f"[Grasp Search] Candidate solvable at offset (dx={dx:+.2f}, dy={dy:+.2f}), "
                     f"grasp_z={grasp_z} (detected z={tz_val:.3f}) "
-                    f"-> target=({cand_tx:.3f},{cand_ty:.3f}), pre_grasp_z={pre_grasp_z}")
-                return {
+                    f"-> target=({cand_tx:.3f},{cand_ty:.3f}), pre_grasp_z={pre_grasp_z}, "
+                    f"grasp_joint_margin={grasp_margin:.4f}rad")
+                candidates.append({
                     'tx': cand_tx, 'ty': cand_ty,
                     'dx': dx, 'dy': dy,
                     'grasp_z': grasp_z,
                     'pre_grasp_joints': pre_grasp_joints, 'pre_grasp_z': pre_grasp_z,
                     'descent_waypoints': descent_waypoints,
-                }
+                    'grasp_margin': grasp_margin,
+                })
+                if len(candidates) >= candidate_cap:
+                    best = max(candidates, key=lambda c: c['grasp_margin'])
+                    self.get_logger().info(
+                        f"[Grasp Search] Selected best of {len(candidates)} candidates: "
+                        f"offset (dx={best['dx']:+.2f}, dy={best['dy']:+.2f}), "
+                        f"grasp_margin={best['grasp_margin']:.4f}rad")
+                    return best
+        if candidates:
+            best = max(candidates, key=lambda c: c['grasp_margin'])
+            self.get_logger().info(
+                f"[Grasp Search] Selected best of {len(candidates)} candidates (search exhausted): "
+                f"offset (dx={best['dx']:+.2f}, dy={best['dy']:+.2f}), "
+                f"grasp_margin={best['grasp_margin']:.4f}rad")
+            return best
         return None
 
     def pick_trash_callback(self, request, response):
@@ -625,7 +703,8 @@ class PickAndPlaceNode(Node):
         # E. Lift (Step Bで見つかった同じ高さ・pitch=90°へ戻る。
         # 到達確認済みの座標のため、再探索は不要)
         self.get_logger().info(f"[Step E] Lifting to Pre-grasp height (z={pre_grasp_z}, pitch=90deg)...")
-        lift_joints = self.solve_ik(gtx, gty, pre_grasp_z, PRE_GRASP_PITCH_RAD, target_yaw)
+        lift_joints = self.solve_ik(gtx, gty, pre_grasp_z, PRE_GRASP_PITCH_RAD, target_yaw,
+                                     avoid_collisions=False, seed_home=False)
         if lift_joints is None:
             abort_sequence(f"IK failed for Lift pose (x={gtx:.3f}, y={gty:.3f}, z={pre_grasp_z:.3f})")
             return response
