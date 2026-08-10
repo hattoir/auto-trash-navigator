@@ -98,6 +98,13 @@ controller_server:
       stateful: True
       plugin: "nav2_controller::SimpleGoalChecker"
       # Changed xy_goal_tolerance from 0.25 to 0.05 to fix the 0.25m early stopping error.
+      # 20260809 (loop2): tried loosening this to 0.08 to help a stuck
+      # approach converge, but it instead made a PREVIOUSLY-reliable pick
+      # (trash_1) arrive far off target (x_rel=0.395, y_rel=0.000 vs
+      # intended 0.330/0.090 -- x_rel=0.395 is right at the known hard
+      # kinematic wall x>=0.37). Reverted to 0.05; the stuck-approach issue
+      # for trash_2 appears unrelated to xy_goal_tolerance (see
+      # yaw_goal_tolerance note below) and needs a different fix.
       xy_goal_tolerance: 0.05
       # 20260808: integration test showed a real approach-pose arrival with
       # y_rel=0.035 vs the intended 0.090 (0.055m off) -- larger than the
@@ -116,10 +123,25 @@ controller_server:
       # pick_and_place.py actively searches a +-0.05m x/y x multi-height
       # grasp target instead of trusting exact arrival (see
       # find_grasp_target()), the lateral-error budget is much larger than
-      # the old +-0.03m unit-test margin. Loosened to 0.12rad
-      # (offset_dist*sin(0.12) ~= 0.041m contribution, still comfortably
-      # inside the grasp search's +-0.05m range) to let the controller
-      # converge more easily while keeping arrival error bounded.
+      # the old +-0.03m unit-test margin. Loosened to 0.12rad first, but
+      # one specific approach (trash near WP2, requiring a large final
+      # in-place turn) still got stuck ("Failed to make progress") and
+      # timed out at 0.12rad too, while xy_goal_tolerance loosening made a
+      # previously-fine pick (trash_1) arrive worse instead of better --
+      # pointing at yaw convergence, not xy, as the blocker for that
+      # approach. Tried loosening further to 0.20rad but the SAME
+      # "stuck, times out on approach" pattern recurred for every trash
+      # item after the first one, across 3 separate full integration
+      # runs (0.05rad, 0.12rad, and 0.20rad all showed it) -- meaning
+      # this specific failure mode is NOT actually sensitive to
+      # yaw_goal_tolerance. The first pick always succeeds; every approach
+      # after it fails. Evidence points to something in the AMCL/TF chain
+      # degrading after the first pick-and-place cycle completes (a TF
+      # message-filter "timestamp earlier than all the data in the
+      # transform cache" warning appeared in that window) rather than a
+      # goal-tolerance problem. Left at 0.12rad -- the best-justified
+      # value against the grasp search's +-0.05m margin -- since larger
+      # values showed no additional benefit for the real blocking issue.
       yaw_goal_tolerance: 0.12
     FollowPath:
       plugin: "nav2_mppi_controller::MPPIController"
