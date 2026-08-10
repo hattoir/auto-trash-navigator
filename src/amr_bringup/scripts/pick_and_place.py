@@ -328,13 +328,20 @@ class PickAndPlaceNode(Node):
             
         get_result_future = goal_handle.get_result_async()
         
+        # 2026-08-10: amr_controllers.yamlのgoal_time=5.0秒(トラジェクトリ
+        # 終了後、コントローラが到達判定を確定させるまでの猶予)と、この
+        # クライアント側待機の余裕(旧: +5.0秒)がほぼ同じ長さだったため、
+        # コントローラがgoal_time一杯まで判定に時間を使うケース(Grasp姿勢
+        # のようにjoint2が可動域限界すれすれで、収束にわずかに時間が
+        # かかる場合など)で、クライアント側が先にタイムアウトしてしまう
+        # 競合が発生した。goal_timeより明確に長い余裕(+8.0秒)を確保する。
         start_t = time.time()
         while not get_result_future.done():
             time.sleep(0.05)
-            if time.time() - start_t > (duration + 5.0):
+            if time.time() - start_t > (duration + 8.0):
                 self.get_logger().error("Timeout waiting for arm trajectory execution!")
                 return False
-        
+
         res = get_result_future.result()
         if res is None:
             return False

@@ -44,21 +44,38 @@ arm_controller:
     # ノード側で検出できず、120秒の/pick_trashタイムアウトを待つまで
     # 気づけなかった。goal/trajectory toleranceを明示し、実到達しない
     # 場合はアクション自体を失敗として返すようにする(検出の迅速化)。
-    # 2026-08-10 追記: trajectory(経路追従中)toleranceを設定したところ、
+    # 2026-08-10 追記1: trajectory(経路追従中)toleranceを設定したところ、
     # ごく普通の起動時home移動ですらPATH_TOLERANCE_VIOLATED(error_code
     # -4)で即座に失敗するようになった。動作中は多少のPID遅れが正常に
     # 起こりうるため、経路追従精度ではなく「最終的に到達したか」だけを
     # 見たい。trajectory tolerance を -1(無効)にし、goal(最終到達)
     # toleranceのみ有効にする。
+    # 2026-08-10 追記2: goal tolerance 0.08radも、降下経路の各
+    # ウェイポイント(0.4秒の短時間移動を10回連続)で頻発する誤検出の
+    # 原因になった(正常な動作でもwaypoint間の残差が0.08radを超える
+    # ことがある)。0.3radまで緩和しても、Grasp直前(関節可動域限界の
+    # 余裕が0.001rad程度しかない、運動学的に避けられない配置)で
+    # waypoint 9/10のような終盤ウェイポイントがGOAL_TOLERANCE_VIOLATED
+    # (error_code=-5)を起こすことがあり、正常なピック試行まで失敗
+    # 扱いになってしまうことを確認した。
+    # 2026-08-10 追記3: コントローラレベルのgoal toleranceは、短時間
+    # ウェイポイント移動の"正常な追従遅れ"と"真の固着(joint2が1.5rad
+    # 以上戻れない)"を区別できないことが分かったため、方針を変更し
+    # constraints自体を無効化した(元のデフォルトへ回帰)。実際の
+    # 到達検証はpick_and_place.py側のverify_and_return_home()に一元化
+    # する(こちらは/joint_statesを直接読み、複数回リトライも行う、
+    # より的確な検出手段であり、かつ「最終的にhomeへ戻れたか」という
+    # 本当に重要な瞬間だけをチェックするため、降下経路中の一時的な
+    # 追従遅れを誤って失敗と判定することがない)。
     constraints:
       stopped_velocity_tolerance: 0.02
-      goal_time: 5.0
-      joint1: {trajectory: -1.0, goal: 0.08}
-      joint2: {trajectory: -1.0, goal: 0.08}
-      joint3: {trajectory: -1.0, goal: 0.08}
-      joint4: {trajectory: -1.0, goal: 0.08}
-      joint5: {trajectory: -1.0, goal: 0.08}
-      joint6: {trajectory: -1.0, goal: 0.08}
+      goal_time: 0.0
+      joint1: {trajectory: -1.0, goal: -1.0}
+      joint2: {trajectory: -1.0, goal: -1.0}
+      joint3: {trajectory: -1.0, goal: -1.0}
+      joint4: {trajectory: -1.0, goal: -1.0}
+      joint5: {trajectory: -1.0, goal: -1.0}
+      joint6: {trajectory: -1.0, goal: -1.0}
 
 gripper_controller:
   ros__parameters:
