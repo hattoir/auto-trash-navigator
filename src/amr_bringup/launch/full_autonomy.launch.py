@@ -5,13 +5,25 @@ os.environ['FASTRTPS_DEFAULT_PROFILES_FILE'] = '/home/pakku/auto-trash-navigator
 
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import IncludeLaunchDescription, TimerAction
+from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, TimerAction
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
 
 def generate_launch_description():
     pkg_amr_bringup = get_package_share_directory('amr_bringup')
     pkg_amr_moveit_config = get_package_share_directory('amr_moveit_config')
+
+    # detector:=depth (デフォルト、sim検証済みの正規パス) | yolo (実機向け、
+    # simのRGBは灰色描画のため検出できない -- 実機/静止画/rosbag専用)
+    detector_arg = DeclareLaunchArgument(
+        'detector', default_value='depth',
+        description="Trash detector backend to use: 'depth' (sim-verified) or 'yolo' (real-robot RGB+depth)"
+    )
+    detector_config = LaunchConfiguration('detector')
+    is_depth = IfCondition(PythonExpression(["'", detector_config, "' == 'depth'"]))
+    is_yolo = IfCondition(PythonExpression(["'", detector_config, "' == 'yolo'"]))
 
     # 1. Gazebo Simulation (headless:=true)
     gazebo_launch = IncludeLaunchDescription(
@@ -53,11 +65,13 @@ def generate_launch_description():
     )
 
     # 6. Trash Detector node (remapped to synchronized topics)
-    trash_detector_node = Node(
+    # detector:=depth (デフォルト) -- simで検証済みの正規パス
+    depth_trash_detector_node = Node(
         package='amr_bringup',
         executable='depth_trash_detector.py',
         name='trash_detector',
         output='screen',
+        condition=is_depth,
         parameters=[{
             'use_sim_time': True,
             'image_topic': '/camera/image_raw_sync',
@@ -75,6 +89,25 @@ def generate_launch_description():
             'z_min': 0.001,
             'z_max': 0.08,
             'x_max': 2.8
+        }]
+    )
+
+    # detector:=yolo -- 実機向け(simのRGBは灰色描画のため検出できない、
+    # 実機/静止画/rosbagで検証すること)。トピック設計はdepth版に合わせている。
+    yolo_trash_detector_node = Node(
+        package='amr_bringup',
+        executable='yolo_trash_detector.py',
+        name='trash_detector',
+        output='screen',
+        condition=is_yolo,
+        parameters=[{
+            'use_sim_time': True,
+            'image_topic': '/camera/image_raw_sync',
+            'depth_topic': '/camera/depth_image_raw_vision',
+            'camera_info_topic': '/camera/camera_info',
+            'optical_frame': 'oak_d_optical_link',
+            'confidence_threshold': 0.25,
+            'detect_rate': 5.0,
         }]
     )
 
@@ -105,7 +138,8 @@ def generate_launch_description():
         period=25.0,
         actions=[
             move_group_launch,
-            trash_detector_node
+            depth_trash_detector_node,
+            yolo_trash_detector_node
         ]
     )
 
@@ -119,6 +153,7 @@ def generate_launch_description():
     )
 
     return LaunchDescription([
+        detector_arg,
         gazebo_launch,
         delayed_nav,
         delayed_moveit_vision,

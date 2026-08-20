@@ -6,3 +6,17 @@ __pycache__/
 .aider*
 .vscode/
 cmd/
+
+# YOLO学習済み重み: 過去に1.1GBのファイルでpushが弾かれた事故があるため、
+# 一定サイズを超えるモデルファイルはリポジトリに含めない。
+# src/amr_vision/models/ 配下は小型(YOLOv8n/v11n、数MB程度)のみ許容する
+# 前提で明示的にgit addする運用とし、誤って巨大な重みや中間チェックポイント
+# (last.pt, epoch*.pt等)を含めないようにパターンで除外する。
+**/weights/last.pt
+**/weights/epoch*.pt
+*.onnx
+*.engine
+# ultralyticsがカレントディレクトリに自動ダウンロードする事前学習済み
+# ベースウェイト(yolov8n.pt等)がリポジトリ直下に紛れ込むのを防ぐ。
+# 学習済みの成果物はsrc/amr_vision/models/配下に明示的に配置すること。
+/*.pt

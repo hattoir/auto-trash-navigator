@@ -38,6 +38,8 @@ install(PROGRAMS
   scripts/pick_and_place.py
   scripts/lidar_filter.py
   scripts/run_tests.py
+  scripts/yolo_trash_detector.py
+  scripts/trash_map_publish.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

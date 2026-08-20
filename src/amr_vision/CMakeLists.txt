@@ -23,4 +23,12 @@ if(BUILD_TESTING)
   ament_lint_auto_find_test_dependencies()
 endif()
 
+# YOLO学習済み重み(小型モデルのみ、巨大ファイルはgitignore対象)を
+# share/amr_vision/models へインストールし、実行時に
+# get_package_share_directory('amr_vision') から参照できるようにする。
+install(DIRECTORY
+  models
+  DESTINATION share/${PROJECT_NAME}
+)
+
 ament_package()
