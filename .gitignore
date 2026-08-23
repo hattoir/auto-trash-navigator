@@ -20,3 +20,7 @@ cmd/
 # ベースウェイト(yolov8n.pt等)がリポジトリ直下に紛れ込むのを防ぐ。
 # 学習済みの成果物はsrc/amr_vision/models/配下に明示的に配置すること。
 /*.pt
+# ultralyticsのmodel.val()等がカレントディレクトリ相対で作る
+# runs/detect/ 等の実行ログ・検証結果出力(学習済み成果物は
+# src/amr_vision/models/に別途明示配置するため、ここは常に無視してよい)。
+/runs/

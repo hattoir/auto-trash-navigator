@@ -17,7 +17,16 @@ train/valを8:2に分割し、YOLO形式のディレクトリ構成とdata.yaml�
 import argparse
 import os
 import random
+import re
 import shutil
+
+
+def video_prefix(fname):
+    """ファイル名(例: IMG_6250_00000.jpg)から動画名の接頭辞
+    (例: IMG_6250)を取り出す。tools/extract_frames.pyの命名規則
+    ({動画stem}_{連番5桁}.jpg)に合わせて、末尾の "_数字" を取り除く。"""
+    stem = os.path.splitext(fname)[0]
+    return re.sub(r"_\d+$", "", stem)
 
 
 def read_yolo_label(path):
@@ -45,6 +54,14 @@ def main():
                      help="1画像につき最大面積の矩形のみ残す(人間レビュー未実施の代替措置)")
     ap.add_argument("--no-keep-largest-only", dest="keep_largest_only", action="store_false",
                      help="人間レビュー済みラベルをそのまま使う(複数矩形/画像を許可)")
+    ap.add_argument("--group-by-video", action="store_true",
+                     help="ランダム分割ではなく、動画名(ファイル名の接頭辞、例: IMG_6250)で"
+                          "グループ化して分割する。同一動画のフレームがtrain/valに"
+                          "またがらないようにし、汎化性能をより正しく測るため"
+                          "(Leave-One-Video-Out評価用)。--holdout-videoと併用する。")
+    ap.add_argument("--holdout-video", default=None,
+                     help="--group-by-video指定時、この動画名(接頭辞)のフレーム全てをval、"
+                          "残り全動画をtrainにする")
     args = ap.parse_args()
 
     images_dir = os.path.expanduser(args.images)
@@ -53,11 +70,19 @@ def main():
 
     exts = (".jpg", ".jpeg", ".png")
     files = sorted(f for f in os.listdir(images_dir) if f.lower().endswith(exts))
-    random.Random(args.seed).shuffle(files)
 
-    n_val = max(1, int(len(files) * args.val_frac))
-    val_files = set(files[:n_val])
-    train_files = [f for f in files if f not in val_files]
+    if args.group_by_video:
+        if not args.holdout_video:
+            raise SystemExit("--group-by-video には --holdout-video の指定が必要です")
+        val_files = set(f for f in files if video_prefix(f) == args.holdout_video)
+        if not val_files:
+            raise SystemExit(f"動画名 '{args.holdout_video}' に一致するフレームが見つかりません")
+        train_files = [f for f in files if f not in val_files]
+    else:
+        random.Random(args.seed).shuffle(files)
+        n_val = max(1, int(len(files) * args.val_frac))
+        val_files = set(files[:n_val])
+        train_files = [f for f in files if f not in val_files]
 
     for split, split_files in (("train", train_files), ("val", sorted(val_files))):
         img_out = os.path.join(out_dir, "images", split)
