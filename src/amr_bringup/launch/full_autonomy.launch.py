@@ -10,6 +10,7 @@ from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PythonExpression
 from launch_ros.actions import Node
+from launch_ros.parameter_descriptions import ParameterValue
 
 def generate_launch_description():
     pkg_amr_bringup = get_package_share_directory('amr_bringup')
@@ -24,6 +25,26 @@ def generate_launch_description():
     detector_config = LaunchConfiguration('detector')
     is_depth = IfCondition(PythonExpression(["'", detector_config, "' == 'depth'"]))
     is_yolo = IfCondition(PythonExpression(["'", detector_config, "' == 'yolo'"]))
+
+    # detector:=yolo のときのみ意味を持つ、yolo_trash_detector.py側の測距方式選択。
+    # ranging_mode:=depth(既定) -- YOLOノード自身がdepth_topicを購読して測距
+    # ranging_mode:=mono -- 実機カメラ(Raspberry Pi 5 + Piカメラ、深度なし)向け、
+    #   mono_ranging.pyの床面仮定測距を使う。camera_height/camera_pitch_degは
+    #   実機ごとにtools/calibrate_camera_pose.pyで校正した値を渡すこと
+    #   (URDFの公称値をそのまま信じないこと、mono_ranging.pyのdocstring参照)。
+    ranging_mode_arg = DeclareLaunchArgument(
+        'ranging_mode', default_value='depth',
+        description="yolo_trash_detector.py's ranging method: 'depth' (default) or 'mono' "
+                    "(ground-plane assumption, for the real depth-less camera)"
+    )
+    camera_height_arg = DeclareLaunchArgument(
+        'camera_height', default_value='0.20',
+        description="Camera mount height above floor [m], used only when ranging_mode:=mono"
+    )
+    camera_pitch_deg_arg = DeclareLaunchArgument(
+        'camera_pitch_deg', default_value='15.0',
+        description="Camera downward tilt from horizontal [deg], used only when ranging_mode:=mono"
+    )
 
     # 1. Gazebo Simulation (headless:=true)
     gazebo_launch = IncludeLaunchDescription(
@@ -108,6 +129,9 @@ def generate_launch_description():
             'optical_frame': 'oak_d_optical_link',
             'confidence_threshold': 0.35,
             'detect_rate': 5.0,
+            'ranging_mode': LaunchConfiguration('ranging_mode'),
+            'camera_height': ParameterValue(LaunchConfiguration('camera_height'), value_type=float),
+            'camera_pitch_deg': ParameterValue(LaunchConfiguration('camera_pitch_deg'), value_type=float),
         }]
     )
 
@@ -154,6 +178,9 @@ def generate_launch_description():
 
     return LaunchDescription([
         detector_arg,
+        ranging_mode_arg,
+        camera_height_arg,
+        camera_pitch_deg_arg,
         gazebo_launch,
         delayed_nav,
         delayed_moveit_vision,

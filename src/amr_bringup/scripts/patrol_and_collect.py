@@ -56,6 +56,15 @@ APPROACH_OFFSET_ANGLE = math.atan2(APPROACH_TARGET_Y_REL, APPROACH_TARGET_X_REL)
 APPROACH_OFFSET_DIST = math.hypot(APPROACH_TARGET_X_REL, APPROACH_TARGET_Y_REL)
 MAX_CONSECUTIVE_FAILURES = 3
 GOAL_TIMEOUT_SEC = 120.0
+# --- 接近中の目標再取得(単眼測距の遠距離誤差対策) ---
+# 単眼+床面仮定測距は近距離ほど正確・遠距離ほど不正確(mono_ranging.py参照)。
+# 遠方での1回の検出結果だけを最終pick位置として信用せず、接近しながら
+# 再検出できた近距離の座標へ目標を更新することで精度を上げる。
+# 深度方式(既定)でも同じロジックを流すが、深度は元々正確なため更新量は
+# 小さい(または発火しない)想定。
+RETARGET_GATE_DIST = 0.5   # 現在の追跡対象からこの距離以内の新規検出のみ「同じゴミの精度向上」とみなす
+RETARGET_MIN_MOVE = 0.02   # これ未満の移動はノイズとみなし更新しない
+MAX_TARGET_UPDATES = 3     # 1回の接近あたりの目標更新上限(無限更新→未到達を防ぐ)
 # --- Localization health guard (Phase 5 integration fix) ---
 MAP_BOUND = 3.9          # |x|,|y| beyond this = pose escaped the 8x8m room
 COV_LIMIT = 1.0          # amcl covariance diag (x,y) above this = diverged
@@ -169,6 +178,8 @@ def main():
     navigator.lock = threading.Lock()
     navigator.new_trash_event = threading.Event()
     navigator.current_target_trash = None
+    navigator.target_update_count = 0
+    navigator.target_update_pending = False
     navigator.pick_client = navigator.create_client(GetPlan, '/pick_trash')
 
 
@@ -216,6 +227,25 @@ def main():
                 f"Rejecting implausible detection at ({msg.pose.position.x:.2f},{msg.pose.position.y:.2f})")
             return
         with navigator.lock:
+            # 接近中(APPROACH)は、現在の追跡対象の近傍(0.5m以内)の再検出のみ
+            # 「同じゴミをより近距離で測りなおした結果」として採用し、目標座標を
+            # 更新する。別のゴミへ乗り換えないよう距離ゲートを必須にし、更新回数も
+            # 上限(MAX_TARGET_UPDATES)で打ち切る。ranging_mode='depth'でも同じ
+            # 経路を通るが、深度は元々正確なので更新量は小さい/発火しない想定。
+            if navigator.state == 'APPROACH' and navigator.current_target_trash is not None:
+                ctx, cty, ctz = navigator.current_target_trash
+                d = math.hypot(tx - ctx, ty - cty)
+                if (d < RETARGET_GATE_DIST and d > RETARGET_MIN_MOVE
+                        and navigator.target_update_count < MAX_TARGET_UPDATES):
+                    navigator.target_update_count += 1
+                    navigator.get_logger().info(
+                        f"[Target Update #{navigator.target_update_count}/{MAX_TARGET_UPDATES}] "
+                        f"Approach target refined: ({ctx:.3f},{cty:.3f}) -> ({tx:.3f},{ty:.3f}), "
+                        f"moved {d:.3f}m")
+                    navigator.current_target_trash = (tx, ty, tz)
+                    navigator.target_update_pending = True
+                return
+
             # ONLY detect and queue trash when in PATROL state
             if navigator.state != 'PATROL':
                 return
@@ -435,17 +465,12 @@ def main():
                 tx, ty, tz = navigator.current_target_trash
                 trash_id = len(navigator.processed_trash) + 1
                 navigator.get_logger().info(f"[State Transition] -> APPROACH. Target Trash ID: {trash_id}, Pos: ({tx:.3f}, {ty:.3f})")
-                
-                success = False
-                for attempt in [1, 2]:
-                    navigator.get_logger().info(f"Approach attempt {attempt}/2...")
-                    
-                    rx, ry, ryaw = get_robot_pose(navigator)
-                    if rx is None:
-                        navigator.get_logger().warn("Could not get robot pose. Retrying.")
-                        time.sleep(1.0)
-                        continue
-                        
+
+                with navigator.lock:
+                    navigator.target_update_count = 0
+                    navigator.target_update_pending = False
+
+                def compute_approach_goal(navigator, tx, ty, rx, ry):
                     # 対象への素の方位(theta)から、IK特異領域回避オフセット分
                     # だけヨーをずらし、その方位に沿ってオフセット距離だけ
                     # 後退した位置に停止する。到着後、対象は base_footprint
@@ -457,26 +482,62 @@ def main():
                     goal_yaw = theta - APPROACH_OFFSET_ANGLE
                     goal_x = tx - APPROACH_OFFSET_DIST * math.cos(theta)
                     goal_y = ty - APPROACH_OFFSET_DIST * math.sin(theta)
+                    return make_pose(navigator, goal_x, goal_y, goal_yaw), goal_x, goal_y, goal_yaw, theta
 
-                    goal_pose = make_pose(navigator, goal_x, goal_y, goal_yaw)
+                success = False
+                for attempt in [1, 2]:
+                    navigator.get_logger().info(f"Approach attempt {attempt}/2...")
+
+                    rx, ry, ryaw = get_robot_pose(navigator)
+                    if rx is None:
+                        navigator.get_logger().warn("Could not get robot pose. Retrying.")
+                        time.sleep(1.0)
+                        continue
+
+                    with navigator.lock:
+                        tx, ty, tz = navigator.current_target_trash
+
+                    goal_pose, goal_x, goal_y, goal_yaw, theta = compute_approach_goal(navigator, tx, ty, rx, ry)
                     navigator.get_logger().info(
                         f"Going to approach pose: ({goal_x:.3f}, {goal_y:.3f}) facing {goal_yaw:.3f} rad "
                         f"(offset {APPROACH_OFFSET_DIST:.3f}m @ {APPROACH_OFFSET_ANGLE:.3f}rad from bearing {theta:.3f}rad; "
                         f"expected base_footprint-relative trash pos: x_rel={APPROACH_TARGET_X_REL:.3f}, y_rel={APPROACH_TARGET_Y_REL:.3f})")
-                    
+
                     navigator.goToPose(goal_pose)
                     time.sleep(0.8) # Wait for Action server to accept and start the task
                     approach_start = navigator.get_clock().now()
                     aborted = False
-                    
+
                     while not navigator.isTaskComplete():
+                        with navigator.lock:
+                            pending = navigator.target_update_pending
+                            if pending:
+                                navigator.target_update_pending = False
+                                tx, ty, tz = navigator.current_target_trash
+                        if pending:
+                            navigator.get_logger().info(
+                                f"Target updated mid-approach; cancelling current goal and re-sending "
+                                f"(update #{navigator.target_update_count}/{MAX_TARGET_UPDATES}).")
+                            navigator.cancelTask()
+                            while not navigator.isTaskComplete():
+                                time.sleep(0.05)
+                            rx, ry, ryaw = get_robot_pose(navigator)
+                            if rx is not None:
+                                goal_pose, goal_x, goal_y, goal_yaw, theta = compute_approach_goal(navigator, tx, ty, rx, ry)
+                                navigator.get_logger().info(
+                                    f"Re-issuing approach goal after target update: "
+                                    f"({goal_x:.3f}, {goal_y:.3f}) facing {goal_yaw:.3f} rad")
+                                navigator.goToPose(goal_pose)
+                                time.sleep(0.8)
+                                approach_start = navigator.get_clock().now()
+                            continue
                         if (navigator.get_clock().now() - approach_start) > Duration(seconds=90.0):
                             navigator.get_logger().warn("Approach timed out (90s limit). Cancelling.")
                             navigator.cancelTask()
                             aborted = True
                             break
                         time.sleep(0.2)
-                        
+
                     result = navigator.getResult()
                     if not aborted and result == TaskResult.SUCCEEDED:
                         success = True
