@@ -40,6 +40,7 @@ install(PROGRAMS
   scripts/run_tests.py
   scripts/yolo_trash_detector.py
   scripts/trash_map_publish.py
+  scripts/mono_ranging.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
