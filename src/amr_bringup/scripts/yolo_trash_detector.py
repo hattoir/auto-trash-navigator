@@ -60,7 +60,7 @@ class YoloTrashDetector(Node):
         self.declare_parameter('camera_info_topic', '/camera/camera_info_sync')
         self.declare_parameter('optical_frame', '')  # '' = use image header frame
         self.declare_parameter('model_path', default_model_path())
-        self.declare_parameter('confidence_threshold', 0.4)
+        self.declare_parameter('confidence_threshold', 0.35)
         self.declare_parameter('detect_rate', 5.0)   # Hz throttle
         self.declare_parameter('depth_range_min', 0.1)   # m, sanity range
         self.declare_parameter('depth_range_max', 4.0)   # m, sanity range

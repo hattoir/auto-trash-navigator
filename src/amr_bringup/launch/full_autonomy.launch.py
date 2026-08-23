@@ -106,7 +106,7 @@ def generate_launch_description():
             'depth_topic': '/camera/depth_image_raw_vision',
             'camera_info_topic': '/camera/camera_info',
             'optical_frame': 'oak_d_optical_link',
-            'confidence_threshold': 0.25,
+            'confidence_threshold': 0.35,
             'detect_rate': 5.0,
         }]
     )

@@ -41,8 +41,10 @@ def main():
     ap.add_argument("--out", required=True, help="出力データセットのルートディレクトリ")
     ap.add_argument("--val-frac", type=float, default=0.2)
     ap.add_argument("--seed", type=int, default=42)
-    ap.add_argument("--keep-largest-only", action="store_true", default=True,
+    ap.add_argument("--keep-largest-only", dest="keep_largest_only", action="store_true", default=True,
                      help="1画像につき最大面積の矩形のみ残す(人間レビュー未実施の代替措置)")
+    ap.add_argument("--no-keep-largest-only", dest="keep_largest_only", action="store_false",
+                     help="人間レビュー済みラベルをそのまま使う(複数矩形/画像を許可)")
     args = ap.parse_args()
 
     images_dir = os.path.expanduser(args.images)
