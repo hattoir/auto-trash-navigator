@@ -101,7 +101,7 @@ class ReachabilityMapper(Node):
         return False
 
 
-def scan_floor(node):
+def scan_floor(node, skip_free=False):
     z = 0.020
 
     x_coords = []
@@ -127,25 +127,49 @@ def scan_floor(node):
 
     csv_rows = [['condition', 'pitch_deg', 'x', 'y', 'z', 'success']]
     summary = []
+    all_grid_results = {}  # cond_val -> {x: {y: bool}}, used to build condition 5 as a union
 
     for cond_val, pitch_deg, cond_name in conditions:
         print(f"\nScanning for Condition {cond_val}: {cond_name}...")
-
-        node.set_position_only_ik(pitch_deg is None)
 
         grid_results = {}
         success_xs = []
         success_ys = []
 
-        for x in x_coords:
-            grid_results[x] = {}
-            for y in y_coords:
-                success = node.check_ik(x, y, z, pitch_deg)
-                grid_results[x][y] = success
-                csv_rows.append([cond_val, pitch_deg, x, y, z, 1 if success else 0])
-                if success:
-                    success_xs.append(x)
-                    success_ys.append(y)
+        if pitch_deg is None:
+            # NOTE: MoveIt's /move_group/set_parameters can flip
+            # robot_description_kinematics.arm.position_only_ik on the node,
+            # but TRAC-IK only reads this at kinematics-plugin construction
+            # time (move_group startup), not per-request -- confirmed
+            # empirically: with the param toggled true, results were
+            # byte-for-byte identical to Condition 1 (it silently fell back
+            # to the straight-down seed orientation we pass for this case).
+            # "orientation free" is therefore computed as the union of
+            # Conditions 1-4 (reachable under ANY tested orientation implies
+            # reachable when orientation is unconstrained) rather than by
+            # re-querying IK. This is a lower bound on true position-only
+            # reachability but avoids reporting a silently-wrong result.
+            for x in x_coords:
+                grid_results[x] = {}
+                for y in y_coords:
+                    success = any(all_grid_results[c][x][y] for c in all_grid_results)
+                    grid_results[x][y] = success
+                    csv_rows.append([cond_val, pitch_deg, x, y, z, 1 if success else 0])
+                    if success:
+                        success_xs.append(x)
+                        success_ys.append(y)
+        else:
+            for x in x_coords:
+                grid_results[x] = {}
+                for y in y_coords:
+                    success = node.check_ik(x, y, z, pitch_deg)
+                    grid_results[x][y] = success
+                    csv_rows.append([cond_val, pitch_deg, x, y, z, 1 if success else 0])
+                    if success:
+                        success_xs.append(x)
+                        success_ys.append(y)
+
+        all_grid_results[cond_val] = grid_results
 
         print(f"\n=== Reachability Map (Condition {cond_val}: {cond_name}) ===")
         print("Columns (Y): -0.5m to +0.5m (left to right, step 0.05m)")
