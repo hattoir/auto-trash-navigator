@@ -7,25 +7,36 @@
 
   <link name="base_footprint"/>
 
+  <!-- 2026-08-24 実機HW確定(feature/hw-v2): base_link原点高さ(z)の算出根拠。
+       確定仕様(base_footprint基準): 車輪半径0.040 / 主板上面z=0.060。
+       base_linkを主板の板厚を表す薄い箱とし、下面=車輪中心高さ(接地条件、
+       車輪半径と一致=0.040)、上面=主板上面(0.060)となるように定義する。
+         板厚 = 0.060 - 0.040 = 0.020
+         base_link原点(中心)z = (0.040 + 0.060) / 2 = 0.050
+       この結果、子リンク(車輪, arm_base, oak_d, lidar)のjoint origin zは
+       「絶対値(base_footprint基準) - 0.050」で算出する。
+       検算: 旧値(base_link z=0.1, 板厚0.15)は 底面=0.025 上面=0.175 で
+       あり、旧arm_base_joint z=0.075→arm_base_link絶対z=0.175。
+       新: 底面=0.040(旧0.025から車輪半径分上昇)上面=0.060。 -->
   <joint name="base_joint" type="fixed">
     <parent link="base_footprint"/>
     <child link="base_link"/>
-    <origin xyz="0 0 0.1" rpy="0 0 0"/>
+    <origin xyz="0 0 0.050" rpy="0 0 0"/>
   </joint>
 
   <link name="base_link">
     <visual>
-      <geometry><box size="0.4 0.4 0.15"/></geometry>
+      <geometry><box size="0.4 0.4 0.02"/></geometry>
       <material name="silver"/>
     </visual>
     <collision>
-      <geometry><box size="0.4 0.4 0.15"/></geometry>
+      <geometry><box size="0.4 0.4 0.02"/></geometry>
     </collision>
     <inertial>
       <origin xyz="0 0 0" rpy="0 0 0"/>
       <mass value="10.0"/>
-      <inertia ixx="${(1/12) * 10.0 * (0.4*0.4 + 0.15*0.15)}" ixy="0.0" ixz="0.0"
-               iyy="${(1/12) * 10.0 * (0.4*0.4 + 0.15*0.15)}" iyz="0.0"
+      <inertia ixx="${(1/12) * 10.0 * (0.4*0.4 + 0.02*0.02)}" ixy="0.0" ixz="0.0"
+               iyy="${(1/12) * 10.0 * (0.4*0.4 + 0.02*0.02)}" iyz="0.0"
                izz="${(1/12) * 10.0 * (0.4*0.4 + 0.4*0.4)}"/>
     </inertial>
   </link>
@@ -34,10 +45,15 @@
   <xacro:include filename="base_omni_4wheel.xacro"/>
   <xacro:base_omni_4wheel/>
 
+  <!-- 2026-08-24 実機HW確定: OAK-D Lite 光学中心 (0.182, 0.135, 0.197)
+       [base_footprint基準]、俯角25°。oak_d_optical_joint(下記、Z前方の
+       光学フレーム規約)は並進0のため、oak_d_link原点=光学中心の絶対位置
+       をそのままbase_link基準に変換すればよい: z = 0.197 - 0.050 = 0.147。
+       pitch = 25° = 0.4363323 rad(既存符号規約=正のpitchで下向きを踏襲)。 -->
   <joint name="oak_d_joint" type="fixed">
     <parent link="base_link"/>
     <child link="oak_d_link"/>
-    <origin xyz="0.18 0 0.1" rpy="0 0.26 0"/>
+    <origin xyz="0.182 0.135 0.147" rpy="0 0.4363323 0"/>
   </joint>
 
   <link name="oak_d_link">
@@ -61,10 +77,15 @@
   </joint>
   <link name="oak_d_optical_link"/>
 
+  <!-- 2026-08-24 実機HW確定: RPLIDAR A1M8。スキャン面z=0.210、
+       位置x=-0.160,y=+0.013 [base_footprint基準] → base_link基準は
+       z=0.210-0.050=0.160。取付都合で本体を90°回しているため
+       laser_frameにyaw+90°を付与(除去角度セクターの算出根拠は
+       lidar_filter.pyのコメント参照)。 -->
   <joint name="lidar_joint" type="fixed">
     <parent link="base_link"/>
     <child link="lidar_link"/>
-    <origin xyz="-0.05 0 0.125" rpy="0 0 0"/>
+    <origin xyz="-0.160 0.013 0.160" rpy="0 0 1.5707963"/>
   </joint>
 
   <link name="lidar_link">
@@ -90,10 +111,14 @@
     </inertial>
   </link>
 
+  <!-- 2026-08-24 実機HW確定: アーム取付 x=0.150,y=0,z=主板上面(0.060)
+       [base_footprint基準、Ø100フランジ] → base_link基準は
+       z=0.060-0.050=0.010。向き(rpy)は現状維持(J2正転で車体前方=+X
+       へ倒れる設計を保つためyaw+90°のまま)。 -->
   <joint name="arm_base_joint" type="fixed">
     <parent link="base_link"/>
     <child link="arm_base_link"/>
-    <origin xyz="0.15 0 0.075" rpy="0 0 1.5707963"/>
+    <origin xyz="0.150 0 0.010" rpy="0 0 1.5707963"/>
   </joint>
 
   <link name="arm_base_link">
@@ -248,7 +273,10 @@
           </horizontal>
         </scan>
         <range>
-          <!-- 0.45: arm sweeps within 0.45m of lidar during pick; exclude self-hits --><min>0.45</min>
+          <!-- 2026-08-24: 実機HW確定でLiDAR-アーム基部間距離が0.31m(伸展時0.51m)に
+               広がり、min rangeだけではアーム除去に不十分(伸ばしたアームがrange外に
+               出てしまう)。センサー側のminは仕様値0.15のみとし、アーム自己ヒットの
+               除去はlidar_filter.pyの角度セクターフィルタで行う。 --><min>0.15</min>
           <max>12.0</max>
         </range>
       </lidar>
