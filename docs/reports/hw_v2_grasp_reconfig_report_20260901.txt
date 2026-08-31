@@ -1,0 +1,208 @@
+HW-v2 把持シーケンス再設定・統合検証 報告
+=================================================================
+日時: 2026-09-01
+ブランチ: feature/hw-v2 (mainは無変更)
+
+【注記】本タスクは途中で利用制限による長時間の中断を挟んでおり、
+壁時計での総経過時間(約303分)は制限時間(150分)を超過しているが、
+ユーザーから明示的に「中断したところから続けてください」との指示を
+受けたため、そのまま完走まで作業を継続した。
+
+■ タスク0: 並行セッション事故の後始末とリポジトリ調査
+
+1. git status / stash list / reflog -20 確認:
+   - 未コミットの変更: なし(既に前タスクで確定済み)
+   - 迷子コミット: なし
+   - reflogに、前回検出した並行セッション(同じfeature/hw-v2ブランチ上で
+     作業していた別セッション、commit 8230700・b245e17)の記録が残って
+     いたが、新たな異常な操作の痕跡はなかった
+
+2. ルートディレクトリの散らかり確認:
+   - hw_v2_report_20260901.txt(前タスクで自分が作成)がルート直下に
+     残っていたため、docs/reports/hw_v2_report_20260901.txt へ移動
+   - mono_ranging_*(3件)・yolo_detection_*/yolo_lovo_*(3件)の計6ファイルが
+     「ディスク上では既に削除済みだがgit上は未確定」という中途半端な
+     状態だった(前回セッションがdocs/reports/devlog_0807-0824.mdへの
+     要約統合を意図して手動rmしたが、git rmしていなかったもの)。
+     devlogに内容が要約統合済みであることを確認した上で、git rmで
+     削除を確定させた
+   - yolo26n.pt / yolov8n.pt はルート直下に存在するが、いずれも
+     .gitignoreの /*.pt パターンで正しく無視されている(ultralyticsが
+     自動ダウンロードするベースウェイト、git管理外で問題なし)
+
+3. .gitignore確認: build/ install/ log/ __pycache__/ *.pyc .vscode/ cmd/
+   /*.pt を全てカバー済み。git ls-files でこれらのパターンに一致する
+   トラッキング済みファイルがないことも確認(漏れなし、追加不要)
+
+4. main..feature/hw-v2 の差分一覧(コミット):
+   2c29ee0 wip: HW-v2 URDF update (chassis/wheels/camera/lidar/arm mount) + reach_map/lidar_filter scaffolding
+   8230700 wip: reach map for new chassis geometry
+   b245e17 docs: dev log 2026-08-07..08-24
+   4e35eaa wip: HW-v2 reachability re-scan results (floor 5-cond + height scan)
+   c5d7779 test: HW-v2 open-loop ground-truth verification + final report
+   df8a2cc chore: finalize report cleanup, relocate hw_v2 report into docs/reports/
+   5fc3642 feat: recompute look_down/drop_pose named poses for HW-v2 reachability
+   0672cf5 feat: update grasp sequence for HW-v2 approach offset (0.40, 0.00)
+   80b09cf test: HW-v2 pick unit test tool, 15/15 trials pass
+   e9883fe fix: LiDAR filter was missing the actual self-hit source (OAK-D camera)
+   ※mainはこの間、別セッションにより独自のdocs/reports/整理コミット
+   (0713-0728・0807-0811期間の資料)や"wip: chassis geometry"コミットが
+   直接追加されているが、feature/hw-v2はそれらと独立に進行しており、
+   本タスクではmainを一切操作していない
+
+5. 今後の注意: 作業開始時・各コミット前にgit statusを確認する運用を
+   本タスクでも継続した(実際に異常は検出されなかった)
+
+■ タスク1: 名前付きポーズの再定義(SRDF, TRAC-IK + FK検証)
+
+home: 全関節0(真上直立)。FK確認: grasp_link=(0.15, 0.0, 0.5506)
+  (arm_base絶対z 0.060 + 全リンク長合計0.4906 = 0.5506、理論値と一致)
+
+look_down: IK目標 grasp_link=(0.40, 0.00, 0.12) pitch=60°
+  関節値: j1=-0.0000026, j2=0.4074317, j3=1.2795060,
+          j4=0.0000016, j5=0.9310572, j6=-1.5707997
+  FK確認: (0.400007, -0.0000005, 0.120002) — 目標と一致(誤差~1e-5)
+
+drop_pose: IK目標 grasp_link=(-0.020, 0.00, 0.22) pitch=60°
+  (車載ダストボックス: 中心x=-0.020, リムz=0.160の上方0.06mクリアランス。
+  z=0.25以上はIK解なし=可動域限界、z=0.20/0.22は解あり、余裕を見て0.22採用)
+  関節値: j1=-0.0000809, j2=0.1818069, j3=-1.1682181,
+          j4=0.0000467, j5=-1.6315808, j6=1.5707271
+  FK確認: (-0.020012, 0.0000071, 0.219999) — 目標と一致(誤差~1e-5)
+
+いずれもcompute_ik(TRAC-IK, avoid_collisions=true)で導出し、compute_fkで
+round-trip検証した。
+
+■ タスク2: 把持シーケンスとオフセットの更新
+
+1. patrol_and_collect.py: APPROACH_TARGET_X_REL/Y_REL を 0.33/0.09 から
+   0.40/0.00 に変更。旧仕様で必要だった「y方向へ逃がす」対角オフセット
+   ワークアラウンドは、新可達域で真正面(y=0)が到達可能になったため撤廃。
+
+2. pick_and_place.py:
+   【重大な設計変更】compute_ikでの検証中、旧来の「混合姿勢方式」
+   (Pre-grasp/Liftはpitch=90°(真下)、Grasp直前だけpitch=60°)が新しい
+   接近点(0.40,0.00)と根本的に非互換であることを発見した。pitch=90°では
+   x=0.40の全高度(z=0.02-0.20)でIK解が一切存在しない(旧可達域とは
+   逆転した関係)。このため単一姿勢方式(Pre-grasp/降下/Liftすべて
+   pitch=60°=PRE_GRASP_PITCH_RAD=TARGET_PITCH_RAD)に変更した。
+   PRE_GRASP_Z_CANDIDATESも新到達域(z=0.02-0.20)全域をカバーするよう
+   [0.16,...,0.02](8候補)から[0.20,...,0.02](10候補)へ拡張。
+   drop_joints(Step Fでハードコードされていた、SRDFとは別のコピー)も
+   新しいdrop_poseの値に更新。
+
+3. 実装前に降下経路(Pre-grasp→Grasp)の全ウェイポイントのIKをcompute_ikで
+   確認: PRE_GRASP_Z_CANDIDATES全域(z=0.02-0.20)、把持目標探索の9近傍点
+   ((0.35/0.40/0.45, -0.05/0.00/0.05))、GRASP_Z_LADDER最下限
+   (0.012-0.02)、10分割降下経路の代表5点、いずれもIK解あり。
+
+4. DUSTBOX_LOCATION(pick_and_place.py, world座標のテレポート先)は
+   office_room.sdfのdustboxモデル定義(pose 3.5 -3.5 0.15, box高さ0.3)と
+   照合し、xy完全一致・z=0.35は上面(0.30)より0.05m上の投下余裕であると
+   確認、変更不要と判断した(車載ダストボックスの新位置とは別概念)。
+
+■ タスク3: ピック単体検証(15試行)
+
+tools/pick_unit_test.py: ロボットをワールド原点(0,0,yaw=0)に静止させた
+まま、gz teleportで紙くずをテスト座標付近に配置し、/pick_trashを直接
+呼び出す方式。gazebo.launch.py + move_group + pick_and_place.py単体の
+最小構成で実施(navigation/patrol_and_collect/trash_detectorは不要)。
+
+  (0.40, 0.00) x5, (0.40, +0.08) x5, (0.40, -0.08) x5 = 計15試行
+
+  結果: Total pick success: 15/15 (合格基準12/15を大幅に上回る)
+        Total joint2-home-ok: 15/15 (各試行後、|joint2|<=0.011rad
+        以内でhomeへ復帰、許容0.05radに対して十分な余裕)
+
+  内訳(全15行 pick=OK, joint2=HOME):
+    center x5, plus_y x5, minus_y x5 いずれも100%成功
+
+■ タスク4: 統合検証(20分・無介入)
+
+【1回目の試行(失敗、原因究明と修正)】
+  full_autonomy.launch.py起動後、ロボットが完全に静止したまま前進できず
+  (gz実座標が(0,0,0)から一切変化しない)、controller_server(MPPI)が
+  "Failed to make progress"を繰り返した。調査の結果:
+  - Nav2のcollision_monitorが"Robot to approach"/"continue normal
+    operation"を10秒前後の周期で延々と繰り返しており、速度が実質
+    ゼロに制限され続けていたことが根本原因と判明。
+  - フィルタ後/scanを直接調べると、角度-76.7°〜-63.7°・距離0.34〜0.37m
+    に持続的な近距離ヒットがあり、前タスクで実装したアーム除去
+    セクター([-97.3,-86.5]deg)の外側だった。
+  - TF実測(lidar_link -> oak_d_link)で、この自己ヒットの正体は
+    アームではなくOAK-Dカメラ本体と特定(距離0.3631m・角度-70.367deg、
+    観測値と一致)。HW-v2でのカメラ新配置(0.182,0.135,0.197)が
+    LiDARスキャン面(z=0.210)に近すぎたことが原因(旧カメラ位置z=0.1
+    では発生しなかった、前タスクの分析漏れ)。
+  - lidar_filter.pyにカメラ用の第2除去セクター([-78.7,-62.0]deg,
+    距離閾値0.463m)を追加し修正、再検証した。
+
+【2回目の試行(修正版、正式な検証結果)】
+  開始: 2026-09-01 04:35:20 JST
+  時系列(テスト開始からの相対秒):
+    t=45s   Nav2 active. PATROL -> WP1
+    t=59s   PATROL -> WP2
+    t=60s   APPROACH -> Trash ID:1 Pos(2.354,-1.762)
+    t=61s   Arrived. 距離0.403m (x_rel=0.399, y_rel=-0.056) -> COLLECT
+    t=87s   回収完了: id=1
+    t=91s   PATROL -> WP2
+    t=95s   APPROACH -> Trash ID:2 Pos(0.547,1.985)
+    t=104s  Arrived. 距離0.401m (x_rel=0.398, y_rel=0.044) -> COLLECT
+    t=130s  回収完了: id=2
+    t=134s  PATROL -> WP2 -> (t=141s) WP3
+    t=145s  APPROACH -> Trash ID:3 Pos(-2.124,-1.163)
+    t=155s  Arrived. 距離0.404m (x_rel=0.401, y_rel=-0.046) -> COLLECT
+    t=181s  回収完了: id=3
+    t=185s〜1201s(20分打ち切りまで) WP1→WP2→WP3の巡回を継続、
+      3件目回収後だけでWP到達63回(=約21周相当)、エラー・アボートなし
+
+  gzによる物理照合(20分打ち切り直後):
+    paper_trash_1/2/3: いずれも (3.500000, -3.500000, 0.350000)
+      → dustbox位置と誤差0.000m
+    visual_amr(ロボット)最終Pose: (0.239, 2.280, z=0.000), yaw=1.450rad
+      → z<0.1、姿勢も転倒なし、生存確認(WP2〜WP3間を巡回中)
+
+■ 6条件判定
+
+  (a) 回収3件がダストボックス0.4m以内
+      -> 合格(3件とも誤差0.000m、gz実測)
+  (b) 回収時ロボット↔対象距離 ≦1.0m
+      -> 合格(接近完了時の実測距離: 0.403m/0.401m/0.404m)
+  (c) 3個回収後、patrol生存のまま2周以上巡回
+      -> 合格(3件目回収完了(t=181s)後、20分打ち切り(t=1201s)まで
+         約17分間、WP到達63回=約21周相当を継続。要求の6回(2周)を
+         大幅に上回る厳密な合格)
+  (d) 終了時 patrol生存・車体z<0.1
+      -> 合格(gz実測z=0.000、エラー/シャットダウンログなし)
+  (e) ロボット実座標がWP圏を実周回
+      -> 合格(WP1→WP2→WP3の順で規則的に遷移、State Transition
+         全体で69回、順序の乱れなし)
+  (f) 再検出・再回収が発生しない
+      -> 合格(回収完了ログは id=1,2,3 の3回のみ)
+
+  総合判定: 6条件すべて合格。
+
+■ LiDARフィルタの動作確認
+
+  修正版(camera sector追加後)のcollision_monitorログを確認したところ、
+  "Robot to approach for..."/"Robot to continue normal operation"の
+  ログが20分間で0回(1回目の壊れたバージョンでは10秒前後の周期で
+  頻発していた)。アーム・カメラいずれの自己ヒットもcostmapを
+  汚染しておらず、ロボットは全区間で速度制限を受けることなく正常に
+  巡回・接近できたことをログから確認した。
+
+■ 総経過時間
+
+  タスク0〜4の実作業時間(利用制限による中断を除く連続作業分の
+  積算にほぼ相当):約110分程度(ツール実行ログのタイムスタンプから
+  推定)。壁時計での総経過(セッション開始からこのレポート作成まで)は
+  約303分だが、その大半は利用制限による中断であり、ユーザーの明示的な
+  継続指示のもとで完走した。
+
+■ 変更・追加ファイル
+  src/amr_moveit_config/config/visual_amr.srdf (look_down/drop_pose再計算)
+  src/amr_bringup/scripts/patrol_and_collect.py (APPROACH_TARGET更新)
+  src/amr_bringup/scripts/pick_and_place.py (単一姿勢方式へ変更、drop_joints更新)
+  src/amr_bringup/scripts/lidar_filter.py (カメラ自己ヒットセクター追加)
+  tools/pick_unit_test.py (新規、単体検証ツール)
+  docs/reports/hw_v2_grasp_reconfig_report_20260901.txt (本報告書)
