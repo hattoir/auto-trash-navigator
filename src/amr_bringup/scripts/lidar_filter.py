@@ -46,6 +46,32 @@
   距離閾値: 伸展時最大0.51m + 安全マージン0.09m = 0.60m。
   このセクター内・0.60m未満のみを除去する(セクター外や0.60m以遠は
   実際の障害物として温存し、探知能力を不必要に削らない)。
+
+【2026-09-01 追記: OAK-Dカメラの自己ヒット(統合検証で新規発見)】
+  上記のアームセクターだけでは不十分だった。統合検証(full_autonomy,
+  巡回姿勢=全関節0)で collision_monitor が常時「接近中」と誤判定を
+  繰り返し、Nav2が実質的に前進できない不具合が発生した。実際の
+  /scan(フィルタ後)を調べたところ、角度-76.7°〜-63.7°・距離0.34〜0.37m
+  に持続的な近距離ヒットがあり、アームセクター([-97.3,-86.5]deg)の
+  外側だった。TF実測(lidar_link -> oak_d_link)で原因を特定:
+    位置(lidar_link座標系) = (0.1220, -0.3420) → 距離0.3631m,
+    角度atan2(-0.342,0.122) = -70.367deg
+  これは実測ヒットの角度・距離と一致し、自己ヒットの正体はアームでは
+  なくOAK-Dカメラ本体と判明した。HW-v2でカメラ位置を(0.182,0.135,0.197)
+  に変更した結果、LiDARスキャン面(z=0.210)にカメラ筐体上端が非常に
+  近くなり干渉するようになった(旧カメラ位置z=0.1では発生しなかった)。
+  カメラは車体に剛結され姿勢によらず位置が変わらないため、伸展を
+  考慮する必要はなく、単一の固定角度・固定距離の点として扱える。
+
+  除去セクターの算出:
+    中心角度: -70.367deg (lidar_link座標系、TF実測)
+    距離: 0.3631m
+    カメラ筐体(oak_d_linkのvisualボックス0.03x0.1x0.03、最長辺0.10mを
+    保守的な水平方向サイズとして採用):
+      half_angle = atan((0.10/2) / 0.3631) = 7.840deg
+    安全マージン0.5degを加え、半値幅 = 8.340deg
+    → セクター = [-78.708, -62.027] deg
+    距離閾値 = 0.3631 + 0.10(安全マージン) = 0.463m
 """
 import math
 import rclpy
@@ -58,6 +84,12 @@ ARM_SECTOR_MIN = math.radians(-97.340)
 ARM_SECTOR_MAX = math.radians(-86.522)
 ARM_SECTOR_RANGE_CUTOFF = 0.60  # m (伸展時最大0.51m + 安全マージン0.09m)
 
+# OAK-Dカメラ自己ヒット除去セクター(LiDAR自身のスキャン角度系、rad)。
+# 算出根拠は本ファイル冒頭の追記コメント参照。
+CAMERA_SECTOR_MIN = math.radians(-78.708)
+CAMERA_SECTOR_MAX = math.radians(-62.027)
+CAMERA_SECTOR_RANGE_CUTOFF = 0.463  # m
+
 
 class LidarFilterNode(Node):
     def __init__(self):
@@ -67,7 +99,9 @@ class LidarFilterNode(Node):
         self.get_logger().info(
             "LiDAR Self-Filter Node initialized. "
             f"Excluding arm sector [{math.degrees(ARM_SECTOR_MIN):.1f}, "
-            f"{math.degrees(ARM_SECTOR_MAX):.1f}]deg below {ARM_SECTOR_RANGE_CUTOFF}m."
+            f"{math.degrees(ARM_SECTOR_MAX):.1f}]deg below {ARM_SECTOR_RANGE_CUTOFF}m, "
+            f"camera sector [{math.degrees(CAMERA_SECTOR_MIN):.1f}, "
+            f"{math.degrees(CAMERA_SECTOR_MAX):.1f}]deg below {CAMERA_SECTOR_RANGE_CUTOFF}m."
         )
 
     def callback(self, msg):
@@ -76,7 +110,10 @@ class LidarFilterNode(Node):
         angle = msg.angle_min
         for r in msg.ranges:
             in_arm_sector = ARM_SECTOR_MIN <= angle <= ARM_SECTOR_MAX
+            in_camera_sector = CAMERA_SECTOR_MIN <= angle <= CAMERA_SECTOR_MAX
             if in_arm_sector and r < ARM_SECTOR_RANGE_CUTOFF:
+                new_ranges.append(float('inf'))
+            elif in_camera_sector and r < CAMERA_SECTOR_RANGE_CUTOFF:
                 new_ranges.append(float('inf'))
             else:
                 new_ranges.append(r)
