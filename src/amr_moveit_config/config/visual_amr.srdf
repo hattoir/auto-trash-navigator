@@ -15,27 +15,38 @@
         <joint name="joint5" value="0"/>
         <joint name="joint6" value="0"/>
     </group_state>
-    <!-- look_down: pick prep pose. IK target grasp_link=(0.30,0.10,0.02) pitch=60deg,
-         verified via compute_ik (avoid_collisions=true) + FK round-trip 2026-08-07.
-         z=0.02 (not the originally assumed 0.15) because the pitch=60deg workspace
-         is a thin sliver near floor height; see reach map for real arm dimensions. -->
+    <!-- look_down: pick prep pose. HW-v2(肩高さ0.168m)の可達域再測定
+         (2026-08-31, docs/reports/hw_v2_report_20260901.txt)で確定した
+         新しい接近オフセット(x_rel=0.40, y_rel=0.00)に合わせ再算出。
+         IK target grasp_link=(0.40,0.00,0.12) pitch=60deg(Pre-grasp高さ
+         0.02-0.20の中央付近)、verified via compute_ik
+         (avoid_collisions=true) + FK round-trip 2026-09-01。
+         FK確認: (0.400007, -0.0000005, 0.120002) — 目標と一致。 -->
     <group_state name="look_down" group="arm">
-        <joint name="joint1" value="0.7547"/>
-        <joint name="joint2" value="1.571"/>
-        <joint name="joint3" value="1.4773"/>
-        <joint name="joint4" value="0.5143"/>
-        <joint name="joint5" value="-0.4405"/>
-        <joint name="joint6" value="-1.6626"/>
+        <joint name="joint1" value="-0.0000026"/>
+        <joint name="joint2" value="0.4074317"/>
+        <joint name="joint3" value="1.2795060"/>
+        <joint name="joint4" value="0.0000016"/>
+        <joint name="joint5" value="0.9310572"/>
+        <joint name="joint6" value="-1.5707997"/>
     </group_state>
-    <!-- drop_pose: dustbox drop pose. IK target grasp_link=(0.10,0.25,0.25) pitch=60deg,
-         verified via compute_ik (avoid_collisions=true) + FK round-trip 2026-08-07. -->
+    <!-- drop_pose: dustbox drop pose. HW-v2確定仕様(車載ダストボックス
+         中心x=-0.020, リムz=0.160, base_footprint基準)に合わせ再算出。
+         IK target grasp_link=(-0.020,0.00,0.22) pitch=60deg
+         (リム上方+0.06mのクリアランス。z=0.25以上はIK解なし=可動域限界、
+         z=0.20/0.22は解あり、余裕を見てz=0.22を採用)。
+         verified via compute_ik (avoid_collisions=true) + FK round-trip
+         2026-09-01。FK確認: (-0.020012, 0.0000071, 0.219999) — 目標と一致。
+         注記: worldのdustboxモデル(office_room.sdf, pose 3.5 -3.5 0.15)は
+         別物(投下時テレポート先、pick_and_place.pyのDUSTBOX_LOCATIONで
+         管理)。ここでのdrop_poseは車載ダストボックスへの実アーム動作。 -->
     <group_state name="drop_pose" group="arm">
-        <joint name="joint1" value="1.9652"/>
-        <joint name="joint2" value="0.6362"/>
-        <joint name="joint3" value="0.862"/>
-        <joint name="joint4" value="-0.3746"/>
-        <joint name="joint5" value="1.2729"/>
-        <joint name="joint6" value="-0.7525"/>
+        <joint name="joint1" value="-0.0000809"/>
+        <joint name="joint2" value="0.1818069"/>
+        <joint name="joint3" value="-1.1682181"/>
+        <joint name="joint4" value="0.0000467"/>
+        <joint name="joint5" value="-1.6315808"/>
+        <joint name="joint6" value="1.5707271"/>
     </group_state>
     <end_effector name="gripper" parent_link="link6" group="gripper" parent_group="arm"/>
     <virtual_joint name="virtual_joint" type="planar" parent_frame="world" child_link="base_footprint"/>

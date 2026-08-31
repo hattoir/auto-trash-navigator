@@ -34,6 +34,13 @@ TRASH_COORDINATES = {
 
 # Fixed drop destination (world "dustbox" model, office_room.sdf).
 # sim専用: 実機ではアーム投下そのもので実現。
+# 2026-09-01 HW-v2確認: office_room.sdfのdustboxモデルは
+# <pose>3.5 -3.5 0.15 0 0 0</pose>(box高さ0.3、原点=中心のためz=0.15は
+# 箱の中心、上面は0.30)。DUSTBOX_LOCATIONのz=0.35は上面(0.30)より
+# 0.05m上=投下時の余裕であり、xyは完全一致。値は変更不要と確認した
+# (このworld座標は車体に搭載された実際のダストボックス
+# (HW-v2仕様: base_footprint基準 x=-0.020, リムz=0.160。SRDFのdrop_pose
+# 参照)とは別物で、あくまで「テレポートによる最終処分先」を表す)。
 DUSTBOX_LOCATION = (3.5, -3.5, 0.35)
 
 # グリッパー可動域 (実機CAD実測、gripper.xacro参照): -0.013〜+0.013 m
@@ -50,21 +57,24 @@ GRIPPER_CLOSED_GRASP = -0.004
 # タスクの「pitch」表記(水平からの角度)+90°に相当する。
 TARGET_PITCH_RAD = 150.0 * math.pi / 180.0
 
-# --- 混合姿勢方式(Pre-grasp/Lift は垂直寄り、Grasp瞬間のみ60°) ---
-# 実測(compute_ik走査)で、Grasp姿勢(pitch=60°)は到達域が床付近
-# (z≈0.02)のごく薄い層に限られ、8cm/4.5cm上方でホバーする従来設計とは
-# 両立しないことが判明した。一方 pitch=90°(真下)は同じ(x,y)で
-# z=0.02〜0.20の広い範囲に到達できるため、Pre-grasp/LiftはPitch=90°で
-# 実施し、Grasp直前だけ pitch=60° へ遷移する。
+# --- 単一姿勢方式(2026-09-01 HW-v2可達域再測定を受けて改訂) ---
+# 旧仕様(肩高さ0.283m)ではGrasp姿勢(pitch=60°)の到達域が床付近
+# (z≈0.02)のごく薄い層に限られ、8cm/4.5cm上方でホバーする設計とは
+# 両立しなかったため、Pre-grasp/LiftはPitch=90°(真下)、Grasp直前だけ
+# pitch=60°へ遷移する「混合姿勢方式」を採用していた。
+# HW-v2(肩高さ0.168m、11.5cm低下)の可達域再測定
+# (docs/reports/hw_v2_report_20260901.txt)で、新しい接近点(0.40,0.00)は
+# pitch=60°ならz=0.02〜0.20の全域に到達できる一方、pitch=90°(真下)は
+# 同じ(x,y)で全高度が到達不能(IK解なし)になったことが判明した
+# (旧可達域では逆にpitch=90°の方が広かったため、この関係が逆転した)。
+# このため混合姿勢方式を廃止し、Pre-grasp/Lift/GraspすべてPitch=60°で
+# 統一する(TARGET_PITCH_RADと同値)。降下経路のpitch線形補間ロジックは
+# そのまま残す(差分0のため実質定数だが、将来別姿勢に戻す際の互換性のため)。
 # PRE_GRASP_Zは固定値ではなく、対象座標ごとに以下の候補を高い方から
-# 順にIKで試し、最初に解けた高さを採用する(実行時決定)。
-# 単体検証で、接近目標(0.32,0.10)ちょうどではz=0.10が解けても、
-# 検出誤差(±0.03m程度)がある座標では z=0.10 が解けないことが判明した
-# (例: (0.29,0.07)はz=0.08以下でのみ解け、(0.35,0.13)はz=0.12以上
-# でのみ解ける、という逆方向の傾向がある)。高い方から低い方へ順に
-# 試すラダー探索であれば、どちらの傾向の座標にも対応できる。
-PRE_GRASP_Z_CANDIDATES = [0.16, 0.14, 0.12, 0.10, 0.08, 0.06, 0.04, 0.02]
-PRE_GRASP_PITCH_RAD = math.pi  # タスクのpitch=90°(真下)に相当
+# 順にIKで試し、最初に解けた高さを採用する(実行時決定)。新可達域の
+# 全域(z=0.02-0.20、0.02刻み)をカバーするよう候補を拡張した。
+PRE_GRASP_Z_CANDIDATES = [0.20, 0.18, 0.16, 0.14, 0.12, 0.10, 0.08, 0.06, 0.04, 0.02]
+PRE_GRASP_PITCH_RAD = TARGET_PITCH_RAD  # pitch=60°で統一(理由は上記コメント)
 DESCENT_STEPS = 10  # Pre-grasp -> Grasp を10分割し、pitch/zを線形補間
 
 # --- 把持目標探索(2026-08-09 自律改善ループ2) ---
@@ -707,9 +717,9 @@ class PickAndPlaceNode(Node):
             abort_sequence("Failed to close gripper.")
             return response
 
-        # E. Lift (Step Bで見つかった同じ高さ・pitch=90°へ戻る。
-        # 到達確認済みの座標のため、再探索は不要)
-        self.get_logger().info(f"[Step E] Lifting to Pre-grasp height (z={pre_grasp_z}, pitch=90deg)...")
+        # E. Lift (Step Bで見つかった同じ高さ・pitch=60°(PRE_GRASP_PITCH_RAD)
+        # へ戻る。到達確認済みの座標のため、再探索は不要)
+        self.get_logger().info(f"[Step E] Lifting to Pre-grasp height (z={pre_grasp_z}, pitch=60deg)...")
         lift_joints = self.solve_ik(gtx, gty, pre_grasp_z, PRE_GRASP_PITCH_RAD, target_yaw,
                                      avoid_collisions=False, seed_home=False)
         if lift_joints is None:
@@ -719,10 +729,11 @@ class PickAndPlaceNode(Node):
             abort_sequence("Failed to execute Lift joint trajectory.")
             return response
 
-        # F. drop_pose (SRDF drop_pose group_state: grasp_link=(0.10,0.25,0.25)
-        # pitch=60deg, IK/FK検証済み 2026-08-07)
+        # F. drop_pose (SRDF drop_pose group_state: grasp_link=(-0.020,0.00,0.22)
+        # pitch=60deg、HW-v2車載ダストボックス(x=-0.020,リムz=0.160)の
+        # 上方0.06mクリアランス。IK/FK検証済み 2026-09-01)
         self.get_logger().info("[Step F] Moving to Drop pose...")
-        drop_joints = [1.9652, 0.6362, 0.862, -0.3746, 1.2729, -0.7525]
+        drop_joints = [-0.0000809, 0.1818069, -1.1682181, 0.0000467, -1.6315808, 1.5707271]
         if not self.send_arm_trajectory(drop_joints, 2.5):
             abort_sequence("Failed to move to Drop pose.")
             return response
