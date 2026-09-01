@@ -25,7 +25,7 @@ amcl:
     recovery_alpha_fast: 0.0
     recovery_alpha_slow: 0.0
     resample_interval: 1
-    robot_model_type: "nav2_amcl::OmniMotionModel"  # Changed for mecanum drive
+    robot_model_type: "nav2_amcl::DifferentialMotionModel"  # 2026-09-01: メカナム4輪独立→差動2輪(MD10C 1ch x2の制約)
     alpha1: 0.2
     alpha2: 0.2
     alpha3: 0.2
@@ -154,18 +154,20 @@ controller_server:
       ay_min: -3.0
       az_max: 3.5
       vx_std: 0.2
-      vy_std: 0.2
+      vy_std: 0.0  # 2026-09-01 diff-drive: 横移動不可のため0(DiffDriveモデルではvy自体が使われないが明示的に無効化)
       wz_std: 0.4
-      vx_max: 0.4  # Changed for mecanum limit
-      vx_min: -0.4  # Changed for mecanum limit
-      vy_max: 0.4  # Changed for mecanum limit
-      wz_max: 0.8  # Changed for mecanum limit
+      vx_max: 0.45  # 2026-09-01 diff-drive: 実機最高速度0.45m/s(MD10Cドライバの制約)
+      vx_min: -0.45  # 2026-09-01 diff-drive: 同上
+      vy_max: 0.0  # 2026-09-01 diff-drive: 横移動不可(差動2輪、vy=0に拘束)
+      wz_max: 1.5  # 2026-09-02 diff-drive: メカナムローラー45°の実効モーメントアーム(lx+ly)=0.300mで
+                   # 0.45m/s÷0.300=1.5rad/sが真の上限(ハード資料の2.5は物理トレッドでの過大評価。
+                   # 詳細はbase_omni_4wheel.xacroのDiffDriveプラグインコメント参照)
       iteration_count: 1
       prune_distance: 1.7
       transform_tolerance: 0.1
       temperature: 0.3
       gamma: 0.015
-      motion_model: "Omni"  # Changed for mecanum drive
+      motion_model: "DiffDrive"  # 2026-09-01: メカナム4輪独立→差動2輪(MD10C 1ch x2の制約)
       visualize: true
       regenerate_noises: true
       TrajectoryVisualizer:

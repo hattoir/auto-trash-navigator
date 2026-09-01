@@ -1,0 +1,139 @@
+差動2輪化(feature/diff-drive) 報告 — タスク4で停止(判断が必要)
+=================================================================
+日時: 2026-09-01
+ブランチ: feature/diff-drive (feature/hw-v2から分岐、main・hw-v2は無変更)
+
+【結論】タスク4(開ループ真値試験)のyaw試験が不合格となり、指示通り
+先へ進まず(タスク5統合検証は未実施)ここで停止・報告する。
+根本原因は「変更してはいけないもの」に指定された車輪摩擦モデルと、
+差動2輪コマンドの運動学との間の、シミュレーション上の構造的な
+不整合であり、私の裁量で解消できる範囲を超えていると判断した。
+
+■ タスク1: 駆動プラグインの差し替え(完了・コミット済み)
+
+src/amr_description/urdf/base_omni_4wheel.xacro:
+  gz-sim-mecanum-drive-system → gz-sim-diff-drive-system に置換。
+  4輪すべてをleft_joint/right_jointへ登録
+  (left: front_left_wheel_joint, rear_left_wheel_joint /
+   right: front_right_wheel_joint, rear_right_wheel_joint)。
+  参照実装: /opt/ros/jazzy/opt/gz_sim_vendor/share/gz/gz-sim8/worlds/
+  skid_steer_mecanum.sdf が同じ4joint登録パターンを採用していることを
+  確認した上で踏襲。
+  wheel_separation=0.360 / wheel_radius=0.040(無変更)。
+  速度上限はプラグインのmax_linear_velocity=0.45 /
+  max_angular_velocity=2.5で直接クランプ(車輪joint自体の速度上限
+  16.0rad/sは指示通り無変更)。
+  odom/tf設定(publish_odom_tf=false等)はMecanumDrive時と同一に維持。
+  車輪のコリジョン形状(球)・異方性摩擦(fdir1, mu2=0)・
+  ジョイント軸極性は無変更(omni_wheelマクロ自体は無編集)。
+
+■ タスク2: Nav2設定変更(完了・コミット済み)
+
+nav2_params.yaml:
+  - MPPI: motion_model "Omni"→"DiffDrive"、vx_max/min ±0.4→±0.45、
+    wz_max 0.8→2.5、vy_max/vy_std → 0(横移動不可のため)
+  - AMCL: robot_model_type "OmniMotionModel"→"DifferentialMotionModel"
+  - PreferForwardCritic/GoalAngleCritic の重み、goal tolerance
+    (xy 0.05/yaw 0.12)は指示通り「まず現行値のまま試す」方針とし、
+    タスク4で停止したため未検証(調整の要否を判断する段階まで
+    到達していない)。
+
+■ タスク3: リカバリのy方向撤去(完了・コミット済み)
+
+patrol_and_collect.py の該当箇所を特定(1箇所のみ、pick_and_place.py
+には車体移動コードなし):
+  ピック失敗時のリカバリ("First pick attempt failed"以降)で、
+  adj_x/adj_yの算出に側方成分(lat=0.05, ロボットローカルy方向)が
+  含まれていた。差動2輪はyaw一定のまま横移動できないため、この
+  側方目標は実質的に「回り込んで戻る」複雑な軌道を要求することに
+  なり非現実的と判断し、指示にある2案のうち最小差分の「x方向のみ」
+  を採用してlat成分を削除した。ログメッセージも
+  "forward+lateral"→"forward only"に修正。
+
+■ タスク4: 開ループ真値試験 — yawが不合格
+
+tools/verify_diffdrive_openloop.py を新規作成。gazebo単独起動
+(Nav2なし)で+x/+yaw/+yの3軸を検証。
+
+  +x (linear.x=0.20, 3s):
+    gz_delta.x = 0.5851 m (正方向)
+    odom_delta.x = 0.5854 m
+    |diff| = 0.0003 m → 0.15以内: OK
+
+  +y (linear.y=0.20, 3s):
+    gz_delta(norm) = 0.0000 m (不動、期待通り)
+    odom_delta(norm) = 0.0000 m
+    |diff| = 0.0000 m → 0.15以内: OK
+    → 差動2輪化により横移動が物理的に不可能になったことを確認。
+
+  +yaw (angular.z=0.50, 3s) ★不合格★:
+    gz_delta.yaw   = 0.8814 rad (50.5deg、正方向ではある)
+    odom_delta.yaw = 1.4690 rad (84.2deg)
+    |diff| = 0.5876 rad → 0.15以内: NG(大幅超過)
+
+【原因調査】
+  1. 車輪joint自体の応答を/joint_statesで直接確認したところ、
+     angular.z=0.5指令に対し前後左右輪とも即座に
+     ∓2.25rad/s(理論値: (0.5*0.360/2)/0.040=2.25と完全一致)に到達し、
+     3秒間その値を安定して維持していた。車輪への指令伝達・
+     速度追従には問題がない。
+  2. 一方、gz真値でのyaw変化を0.5秒刻みで直接サンプリングしたところ、
+     t=0-0.7s: 6.4deg/s、t=0.7-1.5s: 13.6deg/s、t=1.5-2.2s: 15.3deg/s、
+     t=2.2-2.9s: 15.4deg/s と、t=1.5s以降は期待値28.6deg/s(=0.5rad/s)の
+     約54%で明確に定常化していた。単なる立ち上がり遅延ではなく、
+     持続的なスリップ(車輪は正しく回っているのに車体が追従しきれない)
+     であることを確認した。
+  3. 一方、+x(直進)は理論値とほぼ完全一致していた。
+     この非対称性(直進は正確・純粋回転は大きくスリップ)から、
+     根本原因は「異方性摩擦の向き(fdir1)が、4輪独立制御による
+     真のメカナム運動学(各輪が個別のメカナム速度式で駆動される
+     前提)に合わせてチューニングされたものであり、差動2輪の
+     速度パターン(左右ペア同一速度、wheel_separation=0.360のみを
+     用いる単純な2輪差動の式)とは異なる」ことにあると考えられる。
+     実車では、メカナムローラーが摩擦の低い方向へ自由に転がることで
+     このホイールベース/トレッドの幾何学的な差異を吸収し、結果的に
+     機械的に差動2輪相当の挙動になる(ハード側資料の主張)。しかし
+     本シミュレーションの簡易異方性クーロン摩擦モデル(fdir1固定方向、
+     mu2=0)は、この「ローラーの自由転がりによる吸収」を再現しきれず、
+     4輪独立メカナム制御以外の速度パターンを与えると、この量の
+     恒常的なスリップとして現れると考えられる。
+
+  この摩擦モデル(fdir1・mu2)およびコリジョン形状は「変更してはいけない
+  もの」に明記されているため、私の裁量では修正できない。また
+  wheel_separationパラメータを実際の値と異なる値に偽装してスリップを
+  相殺する、といった対応も、明示された固定値(0.360)を偽ることになり
+  不適切と判断し行っていない。
+
+■ 未実施(タスク4不合格により停止)
+
+  - タスク5(20分統合検証)は実施していない
+  - PreferForwardCritic/GoalAngleCritic/goal toleranceの調整可否判断
+  - メカナム時との比較(1周タイム・接近所要時間・到着姿勢誤差)
+
+■ 人間の判断が必要な点
+
+  1. このスリップは「実機でも同程度発生する」ものなのか、それとも
+     「シミュレーションの摩擦モデルの粗さゆえの過大評価」なのか、
+     実機データ(あれば)との照合が必要。
+  2. 統合検証を進める場合、Nav2はクローズドループ(AMCLでの
+     自己位置推定+MPPIのフィードバック)であるため、オープンループの
+     この不整合が実運用にどこまで影響するかは別途検証が要る
+     (自己位置推定さえ正確なら、多少の追従誤差はフィードバックで
+     補正される可能性がある)。ただし、AMCLのDifferentialMotionModel
+     自体も「車輪が滑らない」前提の運動学ノイズモデルであるため、
+     現実の(シミュレーション上の)大きなスリップ量とモデルの想定に
+     乖離があると、自己位置推定の精度が低下するリスクがある。
+  3. 対応方針の選択肢(いずれも私の裁量を超えるため実施していない):
+     a) 統合検証をクローズドループで一度試し、実運用上問題ないか
+        確認してから判断する
+     b) 摩擦モデル変更禁止の制約を緩め、差動2輪の速度パターンに
+        対して物理的に妥当なfdir1配置(あるいは等方性摩擦)へ
+        調整することを許可する
+     c) 実機での検証結果を待ってからシミュレーション側の対応を決める
+
+■ 変更・追加ファイル(コミット済み: 5360ce9)
+  src/amr_description/urdf/base_omni_4wheel.xacro (DiffDriveプラグインへ置換)
+  src/amr_bringup/config/nav2_params.yaml (MPPI/AMCL設定変更)
+  src/amr_bringup/scripts/patrol_and_collect.py (リカバリのy方向撤去)
+  tools/verify_diffdrive_openloop.py (新規、開ループ試験ツール、今回コミット)
+  docs/reports/diffdrive_conversion_report_20260901.txt (本報告書)
