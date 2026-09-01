@@ -45,15 +45,18 @@
   <xacro:include filename="base_omni_4wheel.xacro"/>
   <xacro:base_omni_4wheel/>
 
-  <!-- 2026-08-24 実機HW確定: OAK-D Lite 光学中心 (0.182, 0.135, 0.197)
-       [base_footprint基準]、俯角25°。oak_d_optical_joint(下記、Z前方の
-       光学フレーム規約)は並進0のため、oak_d_link原点=光学中心の絶対位置
-       をそのままbase_link基準に変換すればよい: z = 0.197 - 0.050 = 0.147。
-       pitch = 25° = 0.4363323 rad(既存符号規約=正のpitchで下向きを踏襲)。 -->
+  <!-- 2026-09-01 ハード修正反映: カメラマストを25mm下げた結果、OAK-D Lite
+       光学中心が (0.182, 0.135, 0.197) → (0.189, 0.135, 0.180)
+       [base_footprint基準] に変更。俯角25°は変更なし。
+       oak_d_optical_joint(下記、Z前方の光学フレーム規約)は並進0のため、
+       oak_d_link原点=光学中心の絶対位置をそのままbase_link基準に変換
+       すればよい: z = 0.180 - 0.050 = 0.130。
+       pitch = 25° = 0.4363323 rad(既存符号規約=正のpitchで下向きを踏襲、
+       角度自体は変更なし)。 -->
   <joint name="oak_d_joint" type="fixed">
     <parent link="base_link"/>
     <child link="oak_d_link"/>
-    <origin xyz="0.182 0.135 0.147" rpy="0 0.4363323 0"/>
+    <origin xyz="0.189 0.135 0.130" rpy="0 0.4363323 0"/>
   </joint>
 
   <link name="oak_d_link">
