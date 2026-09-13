@@ -4,9 +4,9 @@ _last updated: 2026-09-14_
 
 ## Current Goal
 
-**コードを書く前に、作業ツリーの状態をユーザーと揃える。**
-ローカル `main` が `origin/main` から 89 コミット遅れており、
-この状態で ROS 2 側に手を入れるとほぼ確実に事故になる。
+**ローカルと `origin/main` を合流させる。** 残りは merge の実行判断のみ。
+未コミットだった約3か月分の Windows 作業は
+`feature/windows-cad-print-firmware` に退避済みで、もう失われない。
 
 ## Current Architecture
 
@@ -43,49 +43,60 @@ git のタグが検証済みの節目を持っている（**すべて origin へ
 
 ## Current Problems
 
-1. **ローカル `main` が 3 か月古い**（adc78e1 / 2026-06-16 対 origin/main db0d8db / 2026-09-02）。
-   このフォルダだけを見ると「CAD ファイルしか無いプロジェクト」に見えてしまう。
-   実害: このリポジトリを読んだ人間や AI が、プロダクトの規模と現在地を誤認する。
-2. **ローカル `README.md` が 1 行しか無い**（しかも `# aout-trash-navigator` と綴りが誤っている）。
-   ただし `origin/main` の README は充実しているので、**ローカルで README を書き直してはいけない**。
-   古いコミットの上に新しい README を作ると、追いついたときに無駄な衝突になる。
-   → 直し方は「ローカルを追いつかせる」であって「README を書く」ではない。
-3. ハンドブック（2026-07-02）の「現状サマリ」が 7 月時点のままで、実際の進捗より遅れている。
-   ただし §2 工程表・§4 検証コマンド・§6 リスク R1〜R12 は今でも有効。
-4. `6-arm-roboto` 配下に `.step` と `.f3d` がそのまま入っている（バイナリ）。
-   git が肥大する。今は実害が小さいので放置しているが、増え続けるなら要検討。
+1. **ブランチがまだ合流していない。** `feature/windows-cad-print-firmware`
+   (9 コミット) は `main`(=`adc78e1`) の上にあり、`origin/main`(`db0d8db`) は
+   そこから 95 コミット先。`git merge-tree` の dry-run では**衝突ゼロ**。
+   実行するかはユーザー判断（§Blockers）。
+2. **`ATN_print/A1_256/A1_S1_smallparts.stl` が古い。**
+   生成 2026-08-31 18:54 に対し、入力の `camera_wedge_oak.stl` と
+   `motor_bracket_*.stl` は 2026-09-03 14:17 更新。
+   再生成すると 10996 → 12156 triangle に変わる。
+   **このまま印刷すると古いカメラウェッジとモーターブラケットが出る。**
+   保全のため現状のまま記録してあるので、印刷前に `python pack.py` を回すこと。
+   （他の 9 プレートは再生成してもバイト単位で一致することを確認済み。）
+3. ハンドブック（2026-07-02）の「現状サマリ」が 7 月時点のまま。
+   §2 工程表・§4 検証コマンド・§6 リスク R1〜R12 は今でも有効。
+4. ESP32 ファーム 3 世代のうち `atn_base_esp32/` は `CPR=3300` が仮定値のまま。
+   実測済みは `_diff_v2` の `CPR=755`（7545/10回転）。世代の取捨選択が未整理。
 
 ## Assumptions
 
-- ROS 2 の開発は別マシン（Ubuntu 24.04）で行われ、この Windows フォルダは
-  主に CAD と紙物（印刷・手順・測定シート）の作業場である、と理解した。
-  未コミットの変更内容（`.step` 12件 + `ATN_print/` + 手順書・測定シート）がその裏付け。
-- したがってローカルを origin へ追いつかせることの優先度は、
-  「ここで ROS 2 を触るかどうか」に依存する。**ユーザーに聞くべきこと。**
+- ROS 2 開発は Ubuntu 24.04 機、この Windows は CAD・印刷・ファームの作業場。
+  未コミットだった変更の内訳がその裏付け。
+- `atn_base_esp32_diff_v2` が現行世代。`atn_base_esp32`(メカナム4輪独立) は
+  差動駆動への移行で役目を終えている可能性が高いが、確認していない。
 
 ## Blockers
 
-- **ローカルに未コミットのユーザー変更がある。**
-  `6-arm-roboto/3Dmodel/*.step` 12 件が変更、`Base_J1.f3d` `CameraMount.step`
-  `CameraRetainer.step` `GripperTop.step` `J2_Bracket_v3.step` が新規、
-  `ATN_day_procedure.md` `ATN_measurement_sheet.md` `ATN_print/` が新規。
-  **`git pull` / `git checkout` / `git reset` を自律実行していない。**
-  ユーザーの作業中の CAD を失う可能性があるため、OS §2・§23 により止めてある。
-  → ユーザー判断が必要。手順の案:
-    1. まず未コミット分を意味のあるコミットにする（CAD の変更 + 新しい手順書）
-    2. その上で `git pull`（origin/main は 89 コミット先なので merge か rebase を選ぶ）
-    3. `.step` の衝突が出たらユーザーが正しい版を選ぶ（機械的には解決できない）
+- **merge を実行するかがユーザー判断。**
+  merge すると 95 コミット分の ROS 2 ワークスペース（`src/` `logs/` `maps/`
+  `legacy/`）がこの Windows フォルダに実体化する。ここでは ROS 2 は動かない。
+  「Windows にも全部置くか、CAD 専用のまま軽く保つか」はワークフローの好みで、
+  技術的には決まらない。
+- push も未実行（共有 remote を変えるため）。
 - ROS 2 の検証はこの環境ではできない（Ubuntu 機が必要）。
 
 ## Next Best Actions
 
-1. **ユーザーに確認する**（この 1 つだけが今できる有益な作業）:
-   未コミットの CAD 変更をコミットしてから origin/main に追いつくか、
-   それともこの Windows 側は CAD 専用として古い main のままで良いか。
-   後者なら、そう `DECISIONS.md` に記録して以後迷わないようにする。
-2. 追いつく方針が決まったら、その手順を実行する（上の Blockers の 3 手順）。
-3. 追いついた後にやる価値があること: ハンドブックの「§1 現状サマリ」を
-   現在の到達点（`diff-drive-verified`）に合わせて更新する。
-   このドキュメントは新しいセッションに貼る前提で作られているので、
-   ここが古いと毎回誤ったコンテキストを配ることになる。
-4. `README.md` のローカル 1 行版は、追いついた時点で自動的に解決する（何もしない）。
+1. **合流方針を決めて実行する。** 衝突ゼロは確認済み。
+
+   ```bash
+   git checkout main
+   git merge feature/windows-cad-print-firmware
+   git merge origin/main
+   git push origin main
+   ```
+
+   Windows を軽く保ちたい場合は、ブランチを push して統合は Ubuntu 側で行う。
+
+   ```bash
+   git push -u origin feature/windows-cad-print-firmware
+   ```
+
+2. 合流後、Ubuntu 側で CSV の改行を一度だけ正規化する
+   （`docs/MULTI_OS_DEVELOPMENT.md` §4 にコマンドあり）。
+3. `python pack.py` を回して `A1_S1_smallparts.stl` を最新化する（印刷前に必須）。
+4. ESP32 ファームの `HALF_SEP=0.300` と、Ubuntu 側 `3ba9d0a` の
+   `wheel_separation` が一致しているか実コードで突き合わせる。
+   両者は独立に同じ結論へ達しているので、統合時の確認価値が高い。
+5. ハンドブック §1 現状サマリを `diff-drive-verified` 時点へ更新する。
