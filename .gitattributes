@@ -1,0 +1,89 @@
+# ============================================================
+# auto-trash-navigator — line ending & binary policy
+#
+# 目的: Ubuntu(primary) と Windows(CAD/3D) の間で、同じファイルが
+#       改行コードの違いだけで "変更あり" に見える事故を防ぐ。
+#
+# 方針:
+#   - repository 内(index)は常に LF で保存する。
+#   - working tree の改行は OS ネイティブのままでよい(= `text` のみ)。
+#     `eol=lf` / `eol=crlf` は、その改行でないと壊れるものにだけ付ける。
+#   - binary は `binary` で明示し、git の自動判定に頼らない。
+#     (STL は先頭 80 byte が ASCII ヘッダなので、自動判定を信用しない)
+# ============================================================
+
+# 既定: git にテキスト/バイナリを判定させ、テキストは index で LF に正規化する
+* text=auto
+
+# ---- source ----
+*.py      text
+*.ino     text
+*.c       text
+*.cpp     text
+*.h       text
+*.hpp     text
+
+# ---- docs / config / data ----
+*.md      text
+*.txt     text
+*.csv     text
+*.json    text
+*.xml     text
+*.yaml    text
+*.yml     text
+*.cfg     text
+*.ini     text
+*.toml    text
+
+# ---- ROS 2 ----
+*.urdf    text
+*.xacro   text
+*.sdf     text
+*.world   text
+*.rviz    text
+*.launch  text
+
+# ---- 改行が固定でないと壊れるもの ----
+*.sh      text eol=lf
+*.bash    text eol=lf
+*.bat     text eol=crlf
+*.cmd     text eol=crlf
+*.ps1     text eol=crlf
+
+# ---- CAD: STEP は ASCII なのでテキスト扱い(index は LF) ----
+# diff は実質読めないが、行数レベルの差分は再エクスポート検知に役立つので
+# binary にはしない。
+*.step    text
+*.stp     text
+
+# ---- CAD / 3D: バイナリ ----
+# .stl は pack.py が出力する binary STL。先頭 80 byte が ASCII ヘッダのため
+# 明示的に binary と宣言しないと text 判定される危険がある。
+*.stl     binary
+*.3mf     binary
+*.f3d     binary
+*.f3z     binary
+*.fbx     binary
+*.blend   binary
+*.obj     binary
+*.glb     binary
+*.gltf    text
+
+# ---- 画像 / メディア ----
+*.png     binary
+*.jpg     binary
+*.jpeg    binary
+*.gif     binary
+*.pgm     binary
+*.pdf     binary
+*.mp4     binary
+*.mkv     binary
+
+# ---- ML / ログ / DB ----
+*.pt      binary
+*.onnx    binary
+*.engine  binary
+*.npy     binary
+*.npz     binary
+*.db3     binary
+*.bag     binary
