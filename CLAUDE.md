@@ -292,19 +292,63 @@ OBSERVE → PRIORITIZE → DESIGN → BUILD → TEST → CRITIQUE → FIX → DO
 
 # auto-trash-navigator — このプロジェクト固有
 
-> Auto Trash Navigator — 自律ゴミ回収ロボット（6軸アーム + ESP32 base）
+> ROS 2 + Gazebo 上で動作する、自律ゴミ回収 AMR。
 
-- **canonical name**: `auto-trash-navigator`
-- **実際の場所**: `auto-trash-navigator`
-- **stack**: ESP32 / C++ / Fusion 360 / Python
+## 🚨 最初に読むこと: このローカル作業ツリーは約3か月古い
 
-## 作業を始める前に読む
+```
+ローカル main : adc78e1 (2026-06-16)  ← いま checkout されているのはこれ
+origin/main   : db0d8db (2026-09-02)  ← 本当の最新。89 コミット先
+```
 
-1. `agent/STATE.md` — 今どこにいるか、次に何が価値が高いか
-2. `agent/ROADMAP.md` — どこへ向かっているか
-3. `agent/DECISIONS.md` — なぜこうなっているか
-4. `git status` — ユーザーの未コミット変更を消さないため
+**このフォルダの中身を見て「ATN は CAD ファイルだけのプロジェクト」と判断してはいけない。**
+ROS 2 ワークスペース（`src/amr_bringup` `amr_description` `amr_control`
+`amr_moveit_config` `amr_vision`、`maps/`、`tools/`、`logs/`）は
+すべて `origin/main` 側にあり、ローカルには降りてきていない。
+
+開発は Ubuntu 24.04 機で行われ、成果は origin へ push されている。
+**タグは全て push 済みなので、失われているものは無い。**
+
+| タグ | 日付 | 内容 |
+|---|---|---|
+| `phase1-complete` | 2026-07-03 | 台車の基盤 |
+| `phase2-complete` | 2026-07-07 | Nav2 巡回 |
+| `phase4-complete` | 2026-07-13 | ピック&プレース（10/10 中央・5/5 L・5/5 R） |
+| `project-complete-verified` | 2026-07-24 | 無介入20分の統合検証に合格 |
+| `real-arm-verified` | 2026-08-11 | 実機アーム |
+| `software-complete` | 2026-08-24 | 3回目回収後の2周以上を厳格検証 |
+| `hw-v2-verified` | 2026-09-01 | 実機シャーシ形状 6/6 |
+| `diff-drive-verified` | 2026-09-02 | 差動駆動への変更 6/6 |
+
+### 追いつく前に必ず確認すること
+
+ローカルに**ユーザーの未コミット変更がある**（`6-arm-roboto/3Dmodel/*.step` 12件の変更、
+`ATN_print/`、`ATN_day_procedure.md`、`ATN_measurement_sheet.md` 等の新規）。
+`git pull` / `git checkout` / `git reset` を**勝手に実行しない**。
+`agent/STATE.md` の Blockers を読み、ユーザーに確認してから動くこと。
+
+## 一次資料
+
+- `README.md` は**ローカルのものが古い**（1行しか無い）。正しいのは `git show origin/main:README.md`
+- `Auto-Trash-Navigator_開発ロードマップ_Gemini移行ハンドブック.md` — 2026-07-02 作成。
+  **Phase 2〜6 の工程表と §6 のリスク一覧 R1〜R12 は今でも価値がある**が、
+  「現状サマリ」は 7月時点のもので、実際は project-complete まで進んでいる。
+  Gemini 向けに書かれているが、内容は道具に依存しない。
+
+## 壊してはいけない設定（ハンドブック §1 より。実測で確定済み）
+
+- `gz_ros2_control` の `<hold_joints>false</hold_joints>` — 外すと車輪が位置制御でロックされる
+- 車輪ジョイント軸 `<axis xyz="0 ${y_reflect} 0"/>` — 右輪は180°反転マウントで極性を相殺
+- 車輪摩擦の異方性（mu=1.0 / mu2=0.0）と `<fdir1 gz:expressed_in="base_footprint">`
+- TF の `odom→base_footprint` の発行者は **ekf_node のみ**。二重配信は Nav2 を確実に壊す
+
+## 既知の罠（ハンドブック §6）
+
+R1 FOV 71.6° の疑似LiDAR は視野が狭い / R3 `use_sim_time` の不統一 /
+R4 TF の二重配信 / R5 QoS 不一致 / R6 把持の不安定 / R9 LLM が古い世代のコードを出す /
+R10 動いていた環境が壊れて戻れない。**詰まったら先に §6 を読む。既知の罠なら答えが載っている。**
 
 ## 変更したら通すもの
 
-_まだ自動チェックが無い。最初に足すべきものの一つ。_
+ROS 2 側の検証コマンドはハンドブック §4「検証コマンド チートシート」にある。
+**このローカル（Windows）では ROS 2 は動かない。** ビルド・検証は Ubuntu 機で行う。
