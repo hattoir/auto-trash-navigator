@@ -78,20 +78,17 @@ git のタグが検証済みの節目を持っている（**すべて origin へ
 
 ## Next Best Actions
 
-1. **合流方針を決めて実行する。** 衝突ゼロは確認済み。
+1. **Ubuntu 側で `feature/windows-cad-print-firmware` を統合する。**
+   2026-09-14 に push 済み。衝突ゼロは `git merge-tree` で確認済み。
 
    ```bash
-   git checkout main
-   git merge feature/windows-cad-print-firmware
-   git merge origin/main
-   git push origin main
+   git fetch origin
+   git checkout main && git pull
+   git merge origin/feature/windows-cad-print-firmware
    ```
 
-   Windows を軽く保ちたい場合は、ブランチを push して統合は Ubuntu 側で行う。
-
-   ```bash
-   git push -u origin feature/windows-cad-print-firmware
-   ```
+   この Windows フォルダは CAD/印刷/ファーム専用として軽く保つ方針にした
+   （ユーザー判断、2026-09-14）。ROS 2 ワークスペースはここへ降ろさない。
 
 2. 合流後、Ubuntu 側で CSV の改行を一度だけ正規化する
    （`docs/MULTI_OS_DEVELOPMENT.md` §4 にコマンドあり）。
